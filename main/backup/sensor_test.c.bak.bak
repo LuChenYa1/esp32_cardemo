@@ -1,0 +1,134 @@
+// /*
+//  * ESP32模块集成项目 - 传感器测试主程序
+//  * 
+//  * 功能说明：
+//  * 1. DHT11温湿度传感器测试
+//  * 2. TM1637四位数码管显示测试
+//  * 3. VL53L0X红外测距传感器测试
+//  * 4. GPIO数字输入测试
+//  * 5. ADC模拟电压采集测试
+//  */
+
+// #include <stdio.h>
+// #include <string.h>
+// #include "freertos/FreeRTOS.h"
+// #include "freertos/task.h"
+// #include "freertos/queue.h"
+// #include "esp_log.h"
+// #include "esp_system.h"
+// #include "dht11.h"
+// #include "i2c.h"
+// #include "vl53l0.h"
+// #include "tm1637.h"
+// #include "ssax1.h"
+// #include "ssdx.h"
+
+// static const char *TAG = "传感器测试";
+
+// /*
+//  * 传感器接线配置说明：
+//  * 
+//  * DHT11温湿度传感器:
+//  *   - 数据引脚: SSA1 (GPIO38)
+//  * 
+//  * 触摸传感器（数字）:
+//  *   - 数据引脚: SSA2 (GPIO37)
+//  * 
+//  * TM1637四位数码管:
+//  *   - SCL时钟: SSA3 (GPIO34)
+//  *   - SDA数据: SSD3 (GPIO33)
+//  * 
+//  * VL53L0X红外测距传感器:
+//  *   - SCL时钟: SSA6 (MTDO GPIO40)
+//  *   - SDA数据: SSD6 (MTCK GPIO39)
+//  * 
+//  * ADC模拟电压采集:
+//  *   - 通道0: GPIO1 (ADC1_CH0)
+//  * 
+//  * 完整引脚映射表：
+//  * +---------------+------------------+--------+
+//  * | 接口标识      | ESP32 GPIO       | 功能   |
+//  * +---------------+------------------+--------+
+//  * | SSA1          | GPIO38           | DHT11  |
+//  * | SSA2          | GPIO37           | 触摸   |
+//  * | SSA3          | GPIO34           | TM_SCL |
+//  * | SSA4          | SPICLK_P GPIO30  | 预留   |
+//  * | SSA5          | PCF8574T P6      | 预留   |
+//  * | SSA6          | MTDO GPIO40      | VL_SCL |
+//  * | SSD3          | GPIO33           | TM_SDA |
+//  * | SSD4          | SPICLK_N GPIO31  | 预留   |
+//  * | SSD5          | PCF8574T P5      | 预留   |
+//  * | SSD6          | MTCK GPIO39      | VL_SDA |
+//  * | GPIO1         | ADC1_CH0         | ADC    |
+//  * +---------------+------------------+--------+
+//  */
+
+// /**
+//  * @brief ESP-IDF 应用入口函数
+//  * 
+//  * 功能：
+//  * 1. 初始化所有传感器模块
+//  * 2. 循环读取并显示传感器数据
+//  * 3. 监控GPIO状态
+//  */
+// void app_main(void)
+// {
+//     // 初始化ADC模块（用于模拟电压采集）
+//     ssdx_adc_init();
+    
+//     // 初始化GPIO模块（用于数字信号采集）
+//     ssax1_gpio_init();
+    
+//     // 初始化DHT11温湿度传感器
+//     dht11_init(DHT11_PIN_1);
+
+//     // 初始化I2C通信和TM1637显示模块
+//     i2c_init();
+
+//     // 初始化VL53L0X距离传感器
+//     Gir_distance_sensor_init();
+    
+//     // 延迟1秒等待传感器初始化完成
+//     vTaskDelay(pdMS_TO_TICKS(1000)); 
+    
+//     // 设置传感器工作模式：0表示高精度模式，1表示高速模式
+//     Gir_setMode(0); // 0: 高精度模式，1: 高速模式
+    
+//     // 再次延迟1秒等待模式设置生效
+//     vTaskDelay(pdMS_TO_TICKS(1000));
+
+//     // 打印启动提示
+//     ESP_LOGI(TAG, "传感器测试开始");
+
+//     // 定义计数变量，用于数码管显示
+//     uint16_t i = 0;
+    
+//     // 主程序循环
+//     while (1) {
+//         // 读取DHT11温湿度数据
+//         dht11_read_task((void *)DHT11_PIN_1);
+
+//         // 将当前计数值显示在数码管上
+//         tm1637_disp_num_process(i);
+        
+//         // 计数值递增
+//         i++;
+        
+//         // 限制计数范围，超过9999后重置为0
+//         if(i > 9999) 
+//             i = 0;
+
+//         // 获取并打印当前距离测量值
+//         getDistance();
+        
+//         // 读取GPIO1的电压
+//         int voltage1 = ssdx_read_voltage(0);
+//         printf("GPIO1 电压: %d mV\n", voltage1);
+
+//         // 读取GPIO状态函数内部会自动打印
+//         ssax1_read();
+        
+//         // 每2秒循环一次
+//         vTaskDelay(pdMS_TO_TICKS(2000));
+//     }
+// }

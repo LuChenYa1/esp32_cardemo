@@ -1,0 +1,16 @@
+# 灰度传感器校准测试程序的CMakeLists.txt
+# 使用方法：
+# 1. 备份原main/CMakeLists.txt
+# 2. 将此文件重命名为main/CMakeLists.txt
+# 3. 编译并烧录：idf.py build flash monitor
+
+idf_component_register(
+    SRCS "gray_calibration_test.c"
+    INCLUDE_DIRS "."
+    REQUIRES 
+        freertos
+        driver
+        esp_adc
+        board_config
+        gray_sensor
+)

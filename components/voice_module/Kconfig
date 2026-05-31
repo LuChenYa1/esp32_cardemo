@@ -1,0 +1,92 @@
+menu "语音控制模块配置"
+
+    config VOICE_MODULE_ENABLE
+        bool "启用语音控制模块"
+        default n
+        help
+            启用语音控制模块（可选功能）。
+            如果不需要语音控制功能，可以禁用此选项以节省资源。
+
+    config VOICE_UART_PORT_NUM
+        int "UART端口号"
+        depends on VOICE_MODULE_ENABLE
+        default 1
+        range 0 2
+        help
+            语音模块使用的UART端口号。
+            0 = UART0（注意：UART0是默认日志输出口）
+            1 = UART1（推荐）
+            2 = UART2
+
+    config VOICE_UART_BAUD_RATE
+        int "UART波特率"
+        depends on VOICE_MODULE_ENABLE
+        default 9600
+        help
+            语音模块的UART通信波特率。
+            常用值：9600, 19200, 38400, 57600, 115200
+
+    config VOICE_UART_TX_GPIO
+        int "UART TX引脚"
+        depends on VOICE_MODULE_ENABLE
+        default 35
+        help
+            语音模块UART的发送引脚（TX）。
+            默认：GPIO35
+
+    config VOICE_UART_RX_GPIO
+        int "UART RX引脚"
+        depends on VOICE_MODULE_ENABLE
+        default 36
+        help
+            语音模块UART的接收引脚（RX）。
+            默认：GPIO36
+
+    config VOICE_TASK_PRIORITY
+        int "任务优先级"
+        depends on VOICE_MODULE_ENABLE
+        default 4
+        range 1 10
+        help
+            语音模块任务的优先级。
+            应低于定时器中断，但可以根据需要调整。
+            默认：4
+
+    config VOICE_TASK_STACK_SIZE
+        int "任务栈大小（字节）"
+        depends on VOICE_MODULE_ENABLE
+        default 3072
+        range 2048 8192
+        help
+            语音模块任务的栈大小。
+            默认：3072字节
+
+    config VOICE_RX_BUFFER_SIZE
+        int "接收缓冲区大小（字节）"
+        depends on VOICE_MODULE_ENABLE
+        default 1024
+        range 256 4096
+        help
+            UART接收缓冲区的大小。
+            默认：1024字节
+
+    config VOICE_CMD_TIMEOUT_MS
+        int "命令处理超时（毫秒）"
+        depends on VOICE_MODULE_ENABLE
+        default 10
+        range 5 100
+        help
+            命令处理的最大允许时间。
+            超过此时间会记录警告日志。
+            默认：10毫秒
+
+    config VOICE_DEBUG_LOG
+        bool "启用调试日志"
+        depends on VOICE_MODULE_ENABLE
+        default n
+        help
+            启用语音模块的详细调试日志。
+            包括接收到的原始数据、命令帧解析过程等。
+            注意：调试日志会增加处理时间。
+
+endmenu

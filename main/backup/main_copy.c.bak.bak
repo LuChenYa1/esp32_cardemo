@@ -1,0 +1,753 @@
+/*
+ * ESP32模块集成项目 - 电机控制与编码器监测主程序
+ * 
+ * 功能说明：
+ * 1. 电机控制：控制4个电机按不同速度运行
+ * 2. 编码器监测：实时监测4个编码器的计数和速度
+ * 3. PCF8574测试：PCF8574端口扩展测试
+ * 4. SPI Flash测试：外部SPI Flash读写测试
+ * 5. UART串口收发测试：UART0和UART1回环测试
+ */
+
+#include <stdio.h>
+#include <string.h>
+#include <inttypes.h>  // 添加inttypes.h以使用PRIu32等格式宏
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/queue.h"
+#include "esp_log.h"
+#include "esp_system.h"
+#include "dht11.h"
+#include "i2c.h"
+#include "vl53l0.h"
+#include "tm1637.h"
+#include "ssax1.h"
+#include "ssdx.h"
+#include "pwm.h"
+#include "pcf8574.h"
+#include "encoder.h"
+#include "spiflash.h"  // 添加SPI Flash组件头文件
+#include "485servo.h"  // 添加485舵机头文件
+#include "uart_app.h"  // 添加UART应用层头文件
+
+static const char *TAG = "SPIFlash测试";
+static const char *MOTOR_ENCODER_TAG = "电机编码器测试";
+
+// 串口回环测试任务
+void uart_loopback_task(void *pvParameters)
+{
+    int uart_num = (int)pvParameters;
+    int len;
+    uint8_t data[128];  // 接收缓冲区
+
+    if (uart_num == 0) {
+        // 初始化UART0
+        ESP_LOGI(TAG, "正在初始化UART0 (TX: GPIO43, RX: GPIO44)");
+        // 关闭所有日志输出，因为UART0是默认日志输出口，会影响485通信
+        esp_log_level_set("*", ESP_LOG_NONE);
+        esp_err_t ret = uart0_init_with_baud(115200); // 设置波特率为115200
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "UART0初始化失败: %s", esp_err_to_name(ret));
+            vTaskDelete(NULL);
+            return;
+        }
+        ESP_LOGI(TAG, "UART0初始化完成");
+    } else {
+        // 初始化UART1
+        ESP_LOGI(TAG, "正在初始化UART1 (TX: GPIO17, RX: GPIO18)");
+        esp_err_t ret = uart1_init_with_baud(115200); // 设置波特率为115200
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "UART1初始化失败: %s", esp_err_to_name(ret));
+            vTaskDelete(NULL);
+            return;
+        }
+        ESP_LOGI(TAG, "UART1初始化完成");
+    }
+
+    ESP_LOGI(TAG, "开始UART%d回环测试，将接收的数据发送回去...", uart_num);
+
+    while(1) {
+        // 等待接收数据，最多等待1秒
+        if (uart_num == 0) {
+            len = uart0_recv(data, sizeof(data), pdMS_TO_TICKS(1000));
+        } else {
+            len = uart1_recv(data, sizeof(data), pdMS_TO_TICKS(1000));
+        }
+
+        if (len > 0) {
+            // 接收到数据后将其发送回去
+            if (uart_num == 0) {
+                uart0_send(data, len);  // 使用驱动层的发送函数
+            } else {
+                uart1_send(data, len);  // 使用驱动层的发送函数
+            }
+            ESP_LOGI(TAG, "UART%d: 接收并发送了 %d 字节", uart_num, len);
+        }
+    }
+}
+
+// SPI Flash测试任务
+void spiflash_test_task(void *pvParameters)
+{
+    // 配置SPI Flash参数
+    spiflash_config_t config = {
+        .host_id = SPI2_HOST,
+        .mosi_io_num = 11,
+        .miso_io_num = 13,
+        .sclk_io_num = 12,
+        .cs_io_num = 10,
+    };
+
+    ESP_LOGI(TAG, "Initializing SPI Flash...");
+    esp_err_t ret = spiflash_init(&config);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize SPI Flash: %s", esp_err_to_name(ret));
+        ESP_LOGW(TAG, "SPI Flash test skipped due to initialization failure");
+        vTaskDelete(NULL);  // 删除自身任务并退出
+        return;
+    }
+
+    ESP_LOGI(TAG, "SPI Flash initialized successfully");
+
+    // 获取分区信息
+    const esp_partition_t *partition = spiflash_get_partition();
+    if (!partition) {
+        ESP_LOGE(TAG, "Failed to get SPI Flash partition");
+        vTaskDelete(NULL);  // 删除自身任务并退出
+        return;
+    }
+
+    ESP_LOGI(TAG, "Partition info - Label: %s, Size: %"PRIu32" bytes", partition->label, partition->size);
+
+    // 进行简单的读写测试，测试0.1KB (100字节) 的数据
+    const size_t test_size = 100;  // 0.1KB
+    
+    // 准备测试数据 (0.1KB = 100字节)
+    uint8_t *write_data = malloc(test_size);
+    if (!write_data) {
+        ESP_LOGE(TAG, "Failed to allocate write buffer");
+        vTaskDelete(NULL);  // 删除自身任务并退出
+        return;
+    }
+    
+    uint8_t *read_data = malloc(test_size);
+    if (!read_data) {
+        free(write_data);
+        ESP_LOGE(TAG, "Failed to allocate read buffer");
+        vTaskDelete(NULL);  // 删除自身任务并退出
+        return;
+    }
+
+    // 填充测试数据
+    for (size_t i = 0; i < test_size; i++) {
+        write_data[i] = (i + 1) & 0xFF;  // 从1开始递增
+    }
+
+    ESP_LOGI(TAG, "\n=== Testing 0.1KB (100 bytes) read/write ===");
+    
+    // 执行读写操作
+    ret = spiflash_simple_read_write(0, test_size, write_data, read_data);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Simple read/write test failed: %s", esp_err_to_name(ret));
+    } else {
+        ESP_LOGI(TAG, "Simple read/write test completed successfully");
+        
+        // 比较前几个字节和最后几个字节的数据
+        ESP_LOGI(TAG, "First 5 bytes - Write: 0x%02X, 0x%02X, 0x%02X, 0x%02X, 0x%02X", 
+                 write_data[0], write_data[1], write_data[2], write_data[3], write_data[4]);
+        ESP_LOGI(TAG, "First 5 bytes - Read:  0x%02X, 0x%02X, 0x%02X, 0x%02X, 0x%02X", 
+                 read_data[0], read_data[1], read_data[2], read_data[3], read_data[4]);
+        
+        ESP_LOGI(TAG, "Last 5 bytes - Write: 0x%02X, 0x%02X, 0x%02X, 0x%02X, 0x%02X", 
+                 write_data[test_size-5], write_data[test_size-4], write_data[test_size-3], 
+                 write_data[test_size-2], write_data[test_size-1]);
+        ESP_LOGI(TAG, "Last 5 bytes - Read:  0x%02X, 0x%02X, 0x%02X, 0x%02X, 0x%02X", 
+                 read_data[test_size-5], read_data[test_size-4], read_data[test_size-3], 
+                 read_data[test_size-2], read_data[test_size-1]);
+        
+        // 验证数据一致性
+        bool data_matches = true;
+        for (size_t i = 0; i < test_size; i++) {
+            if (write_data[i] != read_data[i]) {
+                ESP_LOGE(TAG, "Data mismatch at index %zu: wrote 0x%02X, read 0x%02X", i, write_data[i], read_data[i]);
+                data_matches = false;
+                break;
+            }
+        }
+        
+        if (data_matches) {
+            ESP_LOGI(TAG, "Data verification PASSED - All %zu bytes matched", test_size);
+        } else {
+            ESP_LOGE(TAG, "Data verification FAILED");
+        }
+    }
+
+    free(write_data);
+    free(read_data);
+    
+    ESP_LOGI(TAG, "\nSimple read/write testing completed!");
+    vTaskDelete(NULL);  // 删除自身任务
+}
+
+// 定义PCF8574设备
+static i2c_dev_t pcf8574_device;
+
+// 新增：PCF8574模拟PWM函数
+/**
+ * @brief 使用PCF8574模拟PWM输出 - 测试最快IO反转速度
+ * @param device PCF8574设备指针
+ * @param pin_mask 要控制的引脚掩码
+ * @param duty_cycle 占空比 (0-100)
+ */
+void pcf8574_pwm_simulation(i2c_dev_t *device, uint8_t pin_mask, int duty_cycle) {
+    uint8_t state;
+    // 读取当前端口状态
+    ESP_ERROR_CHECK(pcf8574_port_read(device, &state));
+    
+    if(duty_cycle >= 100) {
+        // 占空比100%，完全导通
+        state |= pin_mask;
+        ESP_ERROR_CHECK(pcf8574_port_write(device, state));
+    } else if(duty_cycle <= 0) {
+        // 占空比0%，完全关闭
+        state &= ~pin_mask;
+        ESP_ERROR_CHECK(pcf8574_port_write(device, state));
+    } else {
+        // 使用非常低的PWM频率（50Hz = 20ms周期）以适应200us I/O操作时间
+        // 在20ms周期内，我们有100次（20000/200）机会来控制输出
+        int high_opportunities = (duty_cycle * 100) / 100; // 高电平期间的操作次数
+        int low_opportunities = 100 - high_opportunities;  // 低电平期间的操作次数
+        
+        // 高电平阶段
+        state |= pin_mask;
+        for(int i = 0; i < high_opportunities; i++) {
+            ESP_ERROR_CHECK(pcf8574_port_write(device, state));
+            esp_rom_delay_us(300); // 每次操作延迟200us
+        }
+        
+        // 低电平阶段
+        state &= ~pin_mask;
+        for(int i = 0; i < low_opportunities; i++) {
+            ESP_ERROR_CHECK(pcf8574_port_write(device, state));
+            esp_rom_delay_us(300); // 每次操作延迟200us
+        }
+    }
+}
+
+/**
+ * @brief PCF8574 PWM呼吸灯测试任务 - 用于测试最快IO反转速度
+ *        使用50Hz频率对LED进行PWM调光，从暗到亮再到暗
+ */
+void pcf8574_pwm_breathing_task(void *pvParameters)
+{
+    // 初始化PCF8574设备，使用SCL(IO21)和SDA(IO20)引脚
+    ESP_ERROR_CHECK(pcf8574_init_desc(&pcf8574_device, 0x20, 0, 20, 21)); // 地址0x20, SDA=IO20, SCL=IO21
+
+    uint8_t p2_pin_mask = 1 << 2;  // P2引脚对应bit 2，用于PWM输出
+    int direction = 1; // 方向：1为增加亮度，-1为降低亮度
+    int brightness = 0; // 当前亮度 (0-100)
+
+    ESP_LOGI(MOTOR_ENCODER_TAG, "PCF8574 PWM测试开始 - 50Hz PWM，测试最快IO反转速度");
+
+    while(1) {
+        // 生成50Hz的PWM波形 (周期20ms)
+        pcf8574_pwm_simulation(&pcf8574_device, p2_pin_mask, brightness);
+        
+        // 逐渐改变亮度值，创建呼吸效果
+        // 每次调整1%，完整的呼吸周期大约需要20秒（假设每次循环20ms）
+        brightness += direction;
+        if(brightness >= 100) {
+            brightness = 100;
+            direction = -1;  // 开始变暗
+        } else if(brightness <= 0) {
+            brightness = 0;
+            direction = 1;   // 开始变亮
+        }
+        
+        // 记录重要状态点
+        if(brightness == 50) {
+            ESP_LOGI(MOTOR_ENCODER_TAG, "亮度达到50%%，继续测试");
+        } else if(brightness == 100) {
+            ESP_LOGI(MOTOR_ENCODER_TAG, "亮度达到100%%，开始变暗");
+        }
+    }
+}
+
+void pcf8574_test_task(void *pvParameters)
+{
+    // 初始化PCF8574设备，使用SCL(IO21)和SDA(IO20)引脚
+    ESP_ERROR_CHECK(pcf8574_init_desc(&pcf8574_device, 0x20, 0, 20, 21)); // 地址0x20, SDA=IO20, SCL=IO21
+
+    uint8_t pcf_state = 0;  // 当前PCF8574端口状态
+    uint8_t p2_pin_mask = 1 << 2;  // P2引脚对应bit 2
+    
+    enum { OFF, SLOW_BLINK, FAST_BLINK, ON } mode = OFF;  // 模式：熄灭、慢闪、快闪、常亮
+    TickType_t delay_time = 0;  // 延迟时间
+    int counter = 0;  // 计数器
+    
+    ESP_LOGI(MOTOR_ENCODER_TAG, "PCF8574 P2引脚测试开始: OFF -> SLOW_BLINK -> FAST_BLINK -> ON");
+
+    while(1) {
+        switch(mode) {
+            case OFF:
+                // P2引脚保持熄灭状态
+                pcf_state &= ~p2_pin_mask;  // 清除P2位（熄灭）
+                ESP_ERROR_CHECK(pcf8574_port_write(&pcf8574_device, pcf_state));
+                
+                counter++;
+                if(counter >= 10) {  // 持续2秒（10 * 200ms）
+                    counter = 0;
+                    mode = SLOW_BLINK;
+                    ESP_LOGI(MOTOR_ENCODER_TAG, "切换到慢闪模式");
+                }
+                delay_time = pdMS_TO_TICKS(200);
+                break;
+                
+            case SLOW_BLINK:
+                // P2引脚慢闪（1秒周期，亮灭各500ms）
+                pcf_state ^= p2_pin_mask;  // 翻转P2位
+                ESP_ERROR_CHECK(pcf8574_port_write(&pcf8574_device, pcf_state));
+                
+                counter++;
+                if(counter >= 10) {  // 持续5秒（10次翻转）
+                    counter = 0;
+                    mode = FAST_BLINK;
+                    ESP_LOGI(MOTOR_ENCODER_TAG, "切换到快闪模式");
+                }
+                delay_time = pdMS_TO_TICKS(500);  // 500ms延迟
+                break;
+                
+            case FAST_BLINK:
+                // P2引脚快闪（0.2秒周期，亮灭各100ms）
+                pcf_state ^= p2_pin_mask;  // 翻转P2位
+                ESP_ERROR_CHECK(pcf8574_port_write(&pcf8574_device, pcf_state));
+                
+                counter++;
+                if(counter >= 20) {  // 持续4秒（20次翻转）
+                    counter = 0;
+                    mode = ON;
+                    ESP_LOGI(MOTOR_ENCODER_TAG, "切换到常亮模式");
+                }
+                delay_time = pdMS_TO_TICKS(100);  // 100ms延迟
+                break;
+                
+            case ON:
+                // P2引脚保持常亮
+                pcf_state |= p2_pin_mask;  // 设置P2位（点亮）
+                ESP_ERROR_CHECK(pcf8574_port_write(&pcf8574_device, pcf_state));
+                
+                counter++;
+                if(counter >= 10) {  // 持续2秒（10 * 200ms）
+                    counter = 0;
+                    mode = OFF;
+                    ESP_LOGI(MOTOR_ENCODER_TAG, "切换到熄灭模式");
+                }
+                delay_time = pdMS_TO_TICKS(200);
+                break;
+        }    
+        vTaskDelay(delay_time);
+    }
+}
+
+// 编码器任务
+void encoder_monitor_task(void *pvParameters)
+{
+    encoder_unit_handle_t encoder_handles[4];
+    encoder_config_t configs[4];
+
+    // 初始化编码器1 (GPIO42 a1, GPIO41 b1)
+    configs[0] = DEFAULT_ENCODER_CONFIG();
+    configs[0].phase_a_gpio_num = GPIO_NUM_42;
+    configs[0].phase_b_gpio_num = GPIO_NUM_41;
+    configs[0].low_limit = -2000;
+    configs[0].high_limit = 2000;
+    ESP_ERROR_CHECK(encoder_new_unit(&configs[0], &encoder_handles[0]));
+    ESP_LOGI(MOTOR_ENCODER_TAG, "编码器1 (GPIO42/GPIO41) 初始化完成");
+
+    // 初始化编码器2 (GPIO46 a2, GPIO45 b2)
+    configs[1] = DEFAULT_ENCODER_CONFIG();
+    configs[1].phase_a_gpio_num = GPIO_NUM_46;
+    configs[1].phase_b_gpio_num = GPIO_NUM_45;
+    configs[1].low_limit = -2000;
+    configs[1].high_limit = 2000;
+    ESP_ERROR_CHECK(encoder_new_unit(&configs[1], &encoder_handles[1]));
+    ESP_LOGI(MOTOR_ENCODER_TAG, "编码器2 (GPIO46/GPIO45) 初始化完成");
+
+    // 初始化编码器3 (GPIO14 a3, GPIO15 b3)
+    configs[2] = DEFAULT_ENCODER_CONFIG();
+    configs[2].phase_a_gpio_num = GPIO_NUM_14;
+    configs[2].phase_b_gpio_num = GPIO_NUM_15;
+    configs[2].low_limit = -2000;
+    configs[2].high_limit = 2000;
+    ESP_ERROR_CHECK(encoder_new_unit(&configs[2], &encoder_handles[2]));
+    ESP_LOGI(MOTOR_ENCODER_TAG, "编码器3 (GPIO14/GPIO15) 初始化完成");
+
+    // 初始化编码器4 (GPIO16 a4, GPIO17 b4)
+    configs[3] = DEFAULT_ENCODER_CONFIG();
+    configs[3].phase_a_gpio_num = GPIO_NUM_16;
+    configs[3].phase_b_gpio_num = GPIO_NUM_17;
+    configs[3].low_limit = -2000;
+    configs[3].high_limit = 2000;
+    ESP_ERROR_CHECK(encoder_new_unit(&configs[3], &encoder_handles[3]));
+    ESP_LOGI(MOTOR_ENCODER_TAG, "编码器4 (GPIO16/GPIO17) 初始化完成");
+
+    int counts[4] = {0};
+    float speeds[4] = {0.0};
+
+    while(1) {
+        for(int i = 0; i < 4; i++) {
+            // 获取编码器计数值
+            ESP_ERROR_CHECK(encoder_get_counter(encoder_handles[i], &counts[i]));
+            
+            // 测量编码器速度 (每500ms测量一次)
+            speeds[i] = encoder_measure_speed(encoder_handles[i], 500);
+            
+            ESP_LOGI(MOTOR_ENCODER_TAG, "编码器%d - 计数: %d, 速度: %.2f pulses/sec", i+1, counts[i], speeds[i]);
+        }
+        vTaskDelay(pdMS_TO_TICKS(1000)); // 每秒打印一次
+    }
+}
+
+// 电机控制任务
+void motor_control_task(void *pvParameters)
+{
+    // 初始化LEDC外设
+    ledc_init();
+    ESP_LOGI(MOTOR_ENCODER_TAG, "LEDC 初始化完成");
+
+    while(1) {
+        // 四个电机正向满速运行
+        set_motor_speed(100, 0);
+        set_motor2_speed(100, 0);
+        set_motor3_speed(100, 0);
+        set_motor4_speed(100, 0);
+
+        ESP_LOGI(MOTOR_ENCODER_TAG, "四电机正向满速运行中...");
+        vTaskDelay(pdMS_TO_TICKS(3000));
+
+        // 四个电机正向半速运行
+        set_motor_speed(50, 0);
+        set_motor2_speed(50, 0);
+        set_motor3_speed(50, 0);
+        set_motor4_speed(50, 0);
+
+        ESP_LOGI(MOTOR_ENCODER_TAG, "四电机正向半速运行中...");
+        vTaskDelay(pdMS_TO_TICKS(3000));
+
+        // 四个电机反向满速运行
+        set_motor_speed(0, 100);
+        set_motor2_speed(0, 100);
+        set_motor3_speed(0, 100);
+        set_motor4_speed(0, 100);
+
+        ESP_LOGI(MOTOR_ENCODER_TAG, "四电机反向满速运行中...");
+        vTaskDelay(pdMS_TO_TICKS(3000));
+
+        // 四个电机停止
+        set_motor_speed(0, 0);
+        set_motor2_speed(0, 0);
+        set_motor3_speed(0, 0);
+        set_motor4_speed(0, 0);
+
+        ESP_LOGI(MOTOR_ENCODER_TAG, "四电机停止中...");
+        vTaskDelay(pdMS_TO_TICKS(2000));
+    }
+}
+
+// 485舵机测试任务
+void servo485_test_task(void *pvParameters)
+{
+    // 初始化485舵机
+    servo485_init();
+    ESP_LOGI(MOTOR_ENCODER_TAG, "485舵机初始化完成");
+
+    // 等待一段时间确保初始化完成
+    vTaskDelay(pdMS_TO_TICKS(1000));
+
+    // 定义位置参数
+    uint16_t pos1 = 400;  // 起始位置
+    uint16_t pos2 = 600;  // 结束位置
+    uint8_t speed = 50;   // 移动速度
+
+    ESP_LOGI(MOTOR_ENCODER_TAG, "485舵机测试开始：位置在400-600间来回运动");
+
+    while(1) {
+        // 所有舵机移动到第一个位置（400）
+        ESP_LOGI(MOTOR_ENCODER_TAG, "所有舵机移动到位置: %d", pos1);
+        Set_Servo_position(0xFE, pos1, speed);  // 0xFE 表示所有舵机
+        vTaskDelay(pdMS_TO_TICKS(2000)); // 等待2秒
+
+        // 所有舵机移动到第二个位置（600）
+        ESP_LOGI(MOTOR_ENCODER_TAG, "所有舵机移动到位置: %d", pos2);
+        Set_Servo_position(0xFE, pos2, speed);  // 0xFE 表示所有舵机
+        vTaskDelay(pdMS_TO_TICKS(2000)); // 等待2秒
+
+        // 也可以单独控制特定ID的舵机
+        for(uint8_t id = 1; id <= 4; id++) {
+            // 在两个位置之间交替
+            if(id % 2 == 0) {
+                ESP_LOGI(MOTOR_ENCODER_TAG, "舵机ID %d 移动到位置: %d", id, pos1);
+                Set_Servo_position(id, pos1, speed);
+            } else {
+                ESP_LOGI(MOTOR_ENCODER_TAG, "舵机ID %d 移动到位置: %d", id, pos2);
+                Set_Servo_position(id, pos2, speed);
+            }
+            vTaskDelay(pdMS_TO_TICKS(500)); // 每个舵机间隔0.5秒
+        }
+
+        // 等待一段时间
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+}
+
+void app_main(void)
+{
+    ESP_LOGI(MOTOR_ENCODER_TAG, "PCF8574 PWM测试开始 - 50Hz PWM，测试最快IO反转速度");
+
+    // 初始化I2C驱动
+    ESP_ERROR_CHECK(i2cdev_init());
+
+    // 创建PCF8574 PWM测试任务
+    xTaskCreate(pcf8574_pwm_breathing_task, "pcf8574_pwm_task", configMINIMAL_STACK_SIZE * 3, NULL, 5, NULL);
+
+    // 注释掉其他任务
+    // 创建UART回环测试任务 - UART0
+    // xTaskCreate(uart_loopback_task, "uart0_loopback_task", configMINIMAL_STACK_SIZE * 3, (void*)0, 5, NULL);
+    // // 创建UART回环测试任务 - UART1
+    // xTaskCreate(uart_loopback_task, "uart1_loopback_task", configMINIMAL_STACK_SIZE * 3, (void*)1, 5, NULL);
+    // // 创建SPI Flash测试任务
+    // xTaskCreate(spiflash_test_task, "spiflash_test_task", configMINIMAL_STACK_SIZE * 4, NULL, 5, NULL);
+    // // 创建485舵机测试任务
+    // xTaskCreate(servo485_test_task, "servo485_test_task", configMINIMAL_STACK_SIZE * 3, NULL, 5, NULL);
+    // // 创建编码器监测任务
+    // xTaskCreate(encoder_monitor_task, "encoder_monitor_task", configMINIMAL_STACK_SIZE * 4, NULL, 5, NULL);
+    // xTaskCreate(motor_control_task, "motor_control_task", configMINIMAL_STACK_SIZE * 3, NULL, 5, NULL);
+}
+
+
+/*    以下代码不要删除和修改!!!!!!!    */
+// /*
+//  * ESP32模块集成项目 - 传感器测试主程序
+//  * 
+//  * 功能说明：
+//  * 1. DHT11温湿度传感器测试
+//  * 2. TM1637四位数码管显示测试
+//  * 3. VL53L0X红外测距传感器测试
+//  * 4. GPIO数字输入测试
+//  * 5. ADC模拟电压采集测试
+//  */
+
+// #include <stdio.h>
+// #include <string.h>
+// #include "freertos/FreeRTOS.h"
+// #include "freertos/task.h"
+// #include "freertos/queue.h"
+// #include "esp_log.h"
+// #include "esp_system.h"
+// #include "dht11.h"
+// #include "i2c.h"
+// #include "vl53l0.h"
+// #include "tm1637.h"
+// #include "ssax1.h"
+// #include "ssdx.h"
+// #include "pwm.h"
+
+// static const char *TAG = "传感器测试";
+
+
+// // void app_main(void)
+// // {
+// //     ssdx_adc_init();  // 初始化
+// //     ESP_LOGI(TAG, "初始化完成");
+// //     while (1)
+// //     {
+// //         int adc7 = ssdx_read_voltage(7);
+// //         int adc8 = ssdx_read_voltage(8);
+
+// //                                 ESP_LOGI(TAG, "检测到颜色: %d", adc7);
+// //                                 ESP_LOGI(TAG, "检测到颜色: %d", adc8);
+
+// //         vTaskDelay(pdMS_TO_TICKS(2000));
+// //     }
+// // }
+
+// // void app_main(void *pvParameters)
+// // {
+// //     // 初始化摄像头协议
+// //     // 参数：UART端口号, 波特率, TX引脚, RX引脚, RS485方向控制引脚
+// //     Camera_Init(UART_NUM_2, 115200, 17, 18, 16);
+    
+// //     ESP_LOGI(TAG, "摄像头协议初始化完成");
+    
+// //     // 等待摄像头启动
+// //     vTaskDelay(pdMS_TO_TICKS(1000));
+    
+// //     // 示例1: 切换到颜色识别模式
+// //     ESP_LOGI(TAG, "切换到颜色识别模式");
+// //     if (Camera_SetMode(FUNC_COLOR) == CAMERA_OK) {
+// //         ESP_LOGI(TAG, "模式切换成功");
+// //     } else {
+// //         ESP_LOGE(TAG, "模式切换失败");
+// //     }
+    
+// //     vTaskDelay(pdMS_TO_TICKS(500));
+    
+// //     // 示例2: 读取非指定颜色识别（检测到什么颜色就返回什么）
+// //     uint8_t detected_color, result;
+// //     while (1) {
+// //         // 必须在循环中调用，处理接收数据
+// //         Camera_Process();
+        
+// //         if (Camera_ReadColorNonSpec(&detected_color, &result) == CAMERA_OK) {
+// //             if (result == RESULT_YES) {
+// //                 switch (detected_color) {
+// //                     case COLOR_RED:
+// //                         ESP_LOGI(TAG, "检测到红色");
+// //                         break;
+// //                     case COLOR_GREEN:
+// //                         ESP_LOGI(TAG, "检测到绿色");
+// //                         break;
+// //                     case COLOR_BLUE:
+// //                         ESP_LOGI(TAG, "检测到蓝色");
+// //                         break;
+// //                     case COLOR_YELLOW:
+// //                         ESP_LOGI(TAG, "检测到黄色");
+// //                         break;
+// //                     default:
+// //                         ESP_LOGI(TAG, "检测到颜色: 0x%02X", detected_color);
+// //                         break;
+// //                 }
+// //             } else {
+// //                 ESP_LOGI(TAG, "未检测到颜色");
+// //             }
+// //         }
+        
+// //         vTaskDelay(pdMS_TO_TICKS(500));
+// //     }
+// // }
+
+// // void app_main(void)
+// // {
+// //     ledc_init();  // 初始化LEDC外设
+// //     ESP_LOGI(TAG, "LEDC 初始化完成");
+
+// //     while (1)
+// //     {
+// //         // 四个电机正向满速运行
+// //         set_motor_speed(100, 0);
+// //         set_motor2_speed(100, 0);
+// //         set_motor3_speed(100, 0);
+// //         set_motor4_speed(100, 0);
+
+// //         vTaskDelay(pdMS_TO_TICKS(2000));
+// //         ESP_LOGI(TAG, "四电机正向满速运行中...");
+// //     }
+// // }
+
+// // /*
+// //  * 传感器接线配置说明：
+// //  * 
+// //  * DHT11温湿度传感器:
+// //  *   - 数据引脚: SSA1 (GPIO38)
+// //  * 
+// //  * 触摸传感器（数字）:
+// //  *   - 数据引脚: SSA2 (GPIO37)
+// //  * 
+// //  * TM1637四位数码管:
+// //  *   - SCL时钟: SSA3 (GPIO34)
+// //  *   - SDA数据: SSD3 (GPIO33)
+// //  * 
+// //  * VL53L0X红外测距传感器:
+// //  *   - SCL时钟: SSA6 (MTDO GPIO40)
+// //  *   - SDA数据: SSD6 (MTCK GPIO39)
+// //  * 
+// //  * ADC模拟电压采集:
+// //  *   - 通道0: GPIO1 (ADC1_CH0)
+// //  * 
+// //  * 完整引脚映射表：
+// //  * +---------------+------------------+--------+
+// //  * | 接口标识      | ESP32 GPIO       | 功能   |
+// //  * +---------------+------------------+--------+
+// //  * | SSA1          | GPIO38           | DHT11  |
+// //  * | SSA2          | GPIO37           | 触摸   |
+// //  * | SSA3          | GPIO34           | TM_SCL |
+// //  * | SSA4          | SPICLK_P GPIO30  | 预留   |
+// //  * | SSA5          | PCF8574T P6      | 预留   |
+// //  * | SSA6          | MTDO GPIO40      | VL_SCL |
+// //  * | SSD3          | GPIO33           | TM_SDA |
+// //  * | SSD4          | SPICLK_N GPIO31  | 预留   |
+// //  * | SSD5          | PCF8574T P5      | 预留   |
+// //  * | SSD6          | MTCK GPIO39      | VL_SDA |
+// //  * | GPIO1         | ADC1_CH0         | ADC    |
+// //  * +---------------+------------------+--------+
+// //  */
+
+// // /**
+// //  * @brief ESP-IDF 应用入口函数
+// //  * 
+// //  * 功能：
+// //  * 1. 初始化所有传感器模块
+// //  * 2. 循环读取并显示传感器数据
+// //  * 3. 监控GPIO状态
+// //  */
+// // void app_main(void)
+// // {
+// //     // 初始化ADC模块（用于模拟电压采集）
+// //     ssdx_adc_init();
+    
+// //     // 初始化GPIO模块（用于数字信号采集）
+// //     ssax1_gpio_init();
+    
+// //     // 初始化DHT11温湿度传感器
+// //     dht11_init(DHT11_PIN_1);
+
+// //     // 初始化I2C通信和TM1637显示模块
+// //     i2c_init();
+
+// //     // 初始化VL53L0X距离传感器
+// //     Gir_distance_sensor_init();
+    
+// //     // 延迟1秒等待传感器初始化完成
+// //     vTaskDelay(pdMS_TO_TICKS(1000)); 
+    
+// //     // 设置传感器工作模式：0表示高精模式，1表示高速模式
+// //     Gir_setMode(0); // 0: 高精模式，1: 高速模式
+    
+// //     // 再次延迟1秒等待模式设置生效
+// //     vTaskDelay(pdMS_TO_TICKS(1000));
+
+// //     // 打印启动提示
+// //     ESP_LOGI(TAG, "传感器测试开始");
+
+// //     // 定义计数变量，用于数码管显示
+// //     uint16_t i = 0;
+    
+// //     // 主程序循环
+// //     while (1) {
+// //         // 读取DHT11温湿度数据
+// //         dht11_read_task((void *)DHT11_PIN_1);
+
+// //         // 将当前计数值显示在数码管上
+// //         tm1637_disp_num_process(i);
+        
+// //         // 计数值递增
+// //         i++;
+        
+// //         // 限制计数范围，超过9999后重置为0
+// //         if(i > 9999) 
+// //             i = 0;
+
+// //         // 获取并打印当前距离测量值
+// //         getDistance();
+        
+// //         // 读取GPIO1的电压
+// //         int voltage1 = ssdx_read_voltage(0);
+// //         printf("GPIO1 电压: %d mV\n", voltage1);
+
+// //         // 读取GPIO状态函数内部会自动打印
+// //         ssax1_read();
+        
+// //         // 每2秒循环一次
+// //         vTaskDelay(pdMS_TO_TICKS(2000));
+// //     }
+// // */

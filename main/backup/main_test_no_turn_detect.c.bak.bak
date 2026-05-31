@@ -1,0 +1,65 @@
+// /*
+//  * ESP32巡线小车 - 测试程序（不启动转弯检测）
+//  * 用于排查 Task Watchdog 问题
+//  */
+
+// #include <stdio.h>
+// #include "freertos/FreeRTOS.h"
+// #include "freertos/task.h"
+// #include "esp_log.h"
+// #include "esp_system.h"
+
+// // 巡线相关头文件
+// #include "line_following.h"
+// #include "gray_sensor.h"
+// #include "pwm.h"
+
+// static const char *TAG = "测试程序";
+
+// void app_main(void)
+// {
+//     ESP_LOGI(TAG, "========================================");
+//     ESP_LOGI(TAG, "ESP32巡线小车测试程序（无转弯检测）");
+//     ESP_LOGI(TAG, "========================================");
+    
+//     // 1. 初始化硬件模块
+//     ESP_LOGI(TAG, "初始化硬件模块...");
+    
+//     // 初始化灰度传感器
+//     gray_sensor_init();
+    
+//     // 初始化PWM
+//     ledc_init();
+    
+//     ESP_LOGI(TAG, "硬件初始化完成");
+    
+//     // 2. 设置校准参数
+//     ESP_LOGI(TAG, "设置传感器校准参数...");
+//     gray_sensor_set_calibration(GRAY_SENSOR_LEFT, 3400, 800);
+//     gray_sensor_set_calibration(GRAY_SENSOR_RIGHT, 3400, 800);
+    
+//     // 3. 测试传感器读取
+//     ESP_LOGI(TAG, "开始测试传感器读取...");
+    
+//     int test_count = 0;
+//     while (1) {
+//         // 读取传感器
+//         uint16_t left_raw, right_raw;
+//         gray_sensor_read_both_raw(&left_raw, &right_raw);
+        
+//         float left_norm, right_norm;
+//         gray_sensor_read_both_normalized(&left_norm, &right_norm);
+        
+//         ESP_LOGI(TAG, "传感器 - 左: %d (%.2f), 右: %d (%.2f)", 
+//                  left_raw, left_norm, right_raw, right_norm);
+        
+//         test_count++;
+//         if (test_count >= 10) {
+//             ESP_LOGI(TAG, "传感器测试完成，系统正常运行");
+//             test_count = 0;
+//         }
+        
+//         // 延时1秒
+//         vTaskDelay(pdMS_TO_TICKS(1000));
+//     }
+// }

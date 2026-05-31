@@ -1,0 +1,58 @@
+// /*
+//  * ESP32巡线小车 - 看门狗修复版本
+//  * 
+//  * 修复策略：
+//  * 1. 完全禁用转弯检测任务
+//  * 2. 使用简单的轮询方式
+//  * 3. 在主巡线循环中检测转弯
+//  */
+
+// #include <stdio.h>
+// #include "freertos/FreeRTOS.h"
+// #include "freertos/task.h"
+// #include "esp_log.h"
+// #include "esp_system.h"
+
+// #include "line_following.h"
+// #include "gray_sensor.h"
+// #include "pwm.h"
+
+// static const char *TAG = "巡线小车";
+
+// void app_main(void)
+// {
+//     ESP_LOGI(TAG, "========================================");
+//     ESP_LOGI(TAG, "ESP32巡线小车启动（看门狗修复版）");
+//     ESP_LOGI(TAG, "========================================");
+    
+//     // 1. 初始化硬件
+//     ESP_LOGI(TAG, "初始化硬件模块...");
+//     line_following_init();
+//     ESP_LOGI(TAG, "硬件初始化完成");
+    
+//     // 2. 设置校准参数
+//     ESP_LOGI(TAG, "设置传感器校准参数...");
+//     gray_sensor_set_calibration(GRAY_SENSOR_LEFT, 3400, 800);
+//     gray_sensor_set_calibration(GRAY_SENSOR_RIGHT, 3400, 800);
+    
+//     // 3. 等待系统稳定
+//     ESP_LOGI(TAG, "系统准备中...");
+//     vTaskDelay(pdMS_TO_TICKS(2000));
+    
+//     ESP_LOGI(TAG, "========================================");
+//     ESP_LOGI(TAG, "开始巡线（不使用转弯检测任务）");
+//     ESP_LOGI(TAG, "========================================");
+    
+//     // 4. 主循环 - 使用简单PID巡线，不启动转弯检测任务
+//     uint16_t speed = 717;   // 基础速度 (0-1023，约70%占空比)
+//     float kp = 5.0f;
+//     float kd = 12.0f;
+    
+//     while (1) {
+//         // 使用简单的PD控制，不检测转弯
+//         line_following_pd_control(speed, kp, kd);
+        
+//         // 适当延时，让出CPU
+//         vTaskDelay(pdMS_TO_TICKS(10));
+//     }
+// }

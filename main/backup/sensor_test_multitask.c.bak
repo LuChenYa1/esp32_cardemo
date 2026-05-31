@@ -1,0 +1,1197 @@
+
+
+// /*
+//  * ESP32模块集成项目 - 传感器与外设多任务测试主程序
+//  *
+//  * 功能说明（各任务可按需启用/禁用）：
+//  * 1. 电机控制与编码器监测
+//  * 2. PCF8574 I/O扩展测试（PWM呼吸灯）
+//  * 3. SPI Flash 读写测试
+//  * 4. UART 串口回环测试
+//  * 5. 485舵机控制测试
+//  * 6. 传感器测试（DHT11、TM1637、VL53L0X、ssax1、ssdx）
+//  *
+//  * 传感器接线：
+//  * +---------------+------------------+--------+
+//  * | 接口标识      | ESP32 GPIO       | 功能   |
+//  * +---------------+------------------+--------+
+//  * | SSA1          | GPIO38           | DHT11  |
+//  * | SSA2          | GPIO37           | 触摸/ssax1 |
+//  * | SSA3          | GPIO34           | TM_SCL |
+//  * | SSD3          | GPIO33           | TM_SDA |
+//  * | SSA6          | MTDO GPIO40      | VL_SCL |
+//  * | SSD6          | MTCK GPIO39      | VL_SDA |
+//  * | GPIO1         | ADC1_CH0         | ssdx   |
+//  * +---------------+------------------+--------+
+//  */
+
+// #include <stdio.h>
+// #include <string.h>
+// #include <inttypes.h>
+// #include "freertos/FreeRTOS.h"
+// #include "freertos/task.h"
+// #include "freertos/queue.h"
+// #include "esp_log.h"
+// #include "esp_system.h"
+// #include "esp_timer.h"
+// #include "i2c.h"
+// #include "pwm.h"
+// #include "pcf8574.h"
+// #include "encoder.h"
+// #include "spiflash.h"
+// #include "485servo.h"
+// #include "uart_app.h"
+// #include "dht11.h"
+// #include "tm1637.h"
+// #include "vl53l0.h"
+// #include "ssax1.h"
+// #include "ssdx.h"
+// #include "pcf_buzzer.h"
+// #include "music_data.h"
+
+// static const char *TAG = "传感器多任务测试";
+
+// // ==================== I2C 扫描工具 ====================
+
+// /**
+//  * @brief 扫描 I2C 总线上的所有设备
+//  */
+// void i2c_scan_task(void *pvParameters)
+// {
+//     ESP_LOGI(TAG, "开始扫描 I2C 总线 (SDA=GPIO20, SCL=GPIO21)...");
+//     ESP_LOGI(TAG, "     0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f");
+
+//     for (uint8_t addr = 0; addr < 128; addr++)
+//     {
+//         if (addr % 16 == 0)
+//         {
+//             printf("%02x: ", addr);
+//         }
+
+//         i2c_dev_t test_dev;
+//         esp_err_t ret = pcf8574_init_desc(&test_dev, addr, 0, 20, 21);
+//         if (ret == ESP_OK)
+//         {
+//             uint8_t dummy;
+//             ret = pcf8574_port_read(&test_dev, &dummy);
+//             pcf8574_free_desc(&test_dev);
+
+//             if (ret == ESP_OK)
+//             {
+//                 printf("%02x ", addr);
+//             }
+//             else
+//             {
+//                 printf("-- ");
+//             }
+//         }
+//         else
+//         {
+//             printf("-- ");
+//         }
+
+//         if ((addr + 1) % 16 == 0)
+//         {
+//             printf("\n");
+//         }
+//     }
+
+//     ESP_LOGI(TAG, "I2C 扫描完成");
+//     vTaskDelete(NULL);
+// }
+
+// // ==================== PCF8574 ====================
+// /*
+//  * 接口：I2C
+//  *   SDA = IO20
+//  *   SCL = IO21
+//  *   地址 = 0x20
+//  *   输出引脚 = P2, P3
+//  * 注意：与 VL53L0X 共用 I2C 总线，地址不同可共存
+//  * P2: PWM 呼吸灯
+//  * P3: RS485 DIR 控制
+//  */
+
+// static i2c_dev_t pcf8574_device;
+// static bool pcf8574_initialized = false;
+
+// /**
+//  * @brief 使用PCF8574模拟PWM输出
+//  */
+// void pcf8574_pwm_simulation(i2c_dev_t *device, uint8_t pin_mask, int duty_cycle)
+// {
+//     uint8_t state;
+//     ESP_ERROR_CHECK(pcf8574_port_read(device, &state));
+
+//     if (duty_cycle >= 100)
+//     {
+//         state |= pin_mask;
+//         ESP_ERROR_CHECK(pcf8574_port_write(device, state));
+//     }
+//     else if (duty_cycle <= 0)
+//     {
+//         state &= ~pin_mask;
+//         ESP_ERROR_CHECK(pcf8574_port_write(device, state));
+//     }
+//     else
+//     {
+//         // 50Hz PWM（周期20ms），每次操作约300us
+//         int high_count = duty_cycle;
+//         int low_count = 100 - high_count;
+
+//         state |= pin_mask;
+//         for (int i = 0; i < high_count; i++)
+//         {
+//             ESP_ERROR_CHECK(pcf8574_port_write(device, state));
+//             esp_rom_delay_us(300);
+//         }
+//         state &= ~pin_mask;
+//         for (int i = 0; i < low_count; i++)
+//         {
+//             ESP_ERROR_CHECK(pcf8574_port_write(device, state));
+//             esp_rom_delay_us(300);
+//         }
+//     }
+// }
+
+// /**
+//  * @brief PCF8574 PWM呼吸灯任务
+//  */
+// void pcf8574_pwm_breathing_task(void *pvParameters)
+// {
+//     // 初始化 PCF8574（如果还未初始化）
+//     if (!pcf8574_initialized)
+//     {
+//         ESP_ERROR_CHECK(pcf8574_init_desc(&pcf8574_device, 0x20, 0, 20, 21));
+//         pcf8574_initialized = true;
+//         ESP_LOGI(TAG, "PCF8574 初始化完成 (地址 0x20)");
+//     }
+
+//     uint8_t p2_mask = 1 << 2;
+//     int brightness = 0;
+//     int direction = 1;
+
+//     ESP_LOGI(TAG, "PCF8574 PWM呼吸灯任务启动");
+
+//     while (1)
+//     {
+//         pcf8574_pwm_simulation(&pcf8574_device, p2_mask, brightness);
+
+//         brightness += direction;
+//         if (brightness >= 100)
+//         {
+//             brightness = 100;
+//             direction = -1;
+//         }
+//         else if (brightness <= 0)
+//         {
+//             brightness = 0;
+//             direction = 1;
+//         }
+//     }
+// }
+
+// // ==================== SPI Flash ====================
+// /*
+//  * 接口：SPI2_HOST
+//  *   MOSI = GPIO11
+//  *   MISO = GPIO13
+//  *   SCLK = GPIO12
+//  *   CS   = GPIO10
+//  */
+
+// /**
+//  * @brief SPI Flash 读写测试任务
+//  */
+// void spiflash_test_task(void *pvParameters)
+// {
+//     spiflash_config_t config = {
+//         .host_id = SPI2_HOST,
+//         .mosi_io_num = 11,
+//         .miso_io_num = 13,
+//         .sclk_io_num = 12,
+//         .cs_io_num = 10,
+//     };
+
+//     ESP_LOGI(TAG, "初始化SPI Flash...");
+//     if (spiflash_init(&config) != ESP_OK)
+//     {
+//         ESP_LOGE(TAG, "SPI Flash初始化失败，跳过测试");
+//         vTaskDelete(NULL);
+//         return;
+//     }
+
+//     const size_t test_size = 100;
+//     uint8_t *write_data = malloc(test_size);
+//     uint8_t *read_data = malloc(test_size);
+//     if (!write_data || !read_data)
+//     {
+//         ESP_LOGE(TAG, "内存分配失败");
+//         free(write_data);
+//         free(read_data);
+//         vTaskDelete(NULL);
+//         return;
+//     }
+
+//     for (size_t i = 0; i < test_size; i++)
+//         write_data[i] = (i + 1) & 0xFF;
+
+//     esp_err_t ret = spiflash_simple_read_write(0, test_size, write_data, read_data);
+//     if (ret == ESP_OK)
+//     {
+//         bool ok = true;
+//         for (size_t i = 0; i < test_size; i++)
+//         {
+//             if (write_data[i] != read_data[i])
+//             {
+//                 ok = false;
+//                 break;
+//             }
+//         }
+//         ESP_LOGI(TAG, "SPI Flash数据校验: %s", ok ? "通过" : "失败");
+//     }
+//     else
+//     {
+//         ESP_LOGE(TAG, "SPI Flash读写失败: %s", esp_err_to_name(ret));
+//     }
+
+//     free(write_data);
+//     free(read_data);
+//     vTaskDelete(NULL);
+// }
+
+// // ==================== UART ====================
+// /*
+//  * UART0: TX = GPIO43, RX = GPIO44
+//  * UART1: TX = GPIO17, RX = GPIO18
+//  * ⚠️ 注意：UART1 的 TX(GPIO17) 与编码器4的 phase_b(GPIO17) 冲突，不可同时使用
+//  * ⚠️ 注意：UART0 是默认日志输出口，启用后会关闭所有日志输出
+//  */
+
+// /**
+//  * @brief UART 回环测试任务
+//  * @param pvParameters 传入 UART 编号（0 或 1）
+//  */
+// void uart_loopback_task(void *pvParameters)
+// {
+//     int uart_num = (int)pvParameters;
+//     uint8_t data[128];
+
+//     if (uart_num == 0)
+//     {
+//         ESP_LOGI(TAG, "初始化UART0 (TX:GPIO43, RX:GPIO44)");
+//         ESP_LOGI(TAG, "正在初始化UART0 (TX: GPIO43, RX: GPIO44)");
+//         // 关闭所有日志输出，因为UART0是默认日志输出口，会影响485通信
+//         esp_log_level_set("*", ESP_LOG_NONE);
+//         if (uart0_init_with_baud(115200) != ESP_OK)
+//         {
+//             vTaskDelete(NULL);
+//             return;
+//         }
+//     }
+//     else
+//     {
+//         ESP_LOGI(TAG, "初始化UART1 (TX:GPIO17, RX:GPIO18)");
+//         if (uart1_init_with_baud(115200) != ESP_OK)
+//         {
+//             vTaskDelete(NULL);
+//             return;
+//         }
+//     }
+
+//     ESP_LOGI(TAG, "UART%d 回环测试开始", uart_num);
+
+//     while (1)
+//     {
+//         int len = (uart_num == 0)
+//                       ? uart0_recv(data, sizeof(data), pdMS_TO_TICKS(1000))
+//                       : uart1_recv(data, sizeof(data), pdMS_TO_TICKS(1000));
+
+//         if (len > 0)
+//         {
+//             if (uart_num == 0)
+//                 uart0_send(data, len);
+//             else
+//                 uart1_send(data, len);
+//             ESP_LOGI(TAG, "UART%d: 回环 %d 字节", uart_num, len);
+//         }
+//     }
+// }
+
+// /*
+//  * 编码器
+//  *
+//  * 编码器引脚：
+//  *   编码器1: A = GPIO42, B = GPIO41
+//  *   编码器2: A = GPIO46, B = GPIO45
+//  *   编码器3: A = GPIO14, B = GPIO15
+//  *   编码器4: A = GPIO16, B = GPIO17
+//  *   ⚠️ 编码器4 的 B 相(GPIO17) 与 UART1 TX 冲突，不可同时使用
+//  */
+
+// /* ============================================================
+//  * 模式选择标志位
+//  *   1 = PCNT 硬件计数模式（四倍频）
+//  *   0 = GPIO 外部中断模式（四倍频）
+//  * ============================================================ */
+// #define ENCODER_USE_PCNT 1
+
+// /* 每转脉冲数（四倍频后 = 编码器线数 × 4，例如26线 → 104） */
+// #define PULSES_PER_REV 104
+
+// /* 测速采样间隔 ms */
+// #define SPEED_SAMPLE_MS 200
+
+// /* 编码器数量 */
+// #define ENCODER_COUNT 4
+
+// /* 编码器引脚表 */
+// static const gpio_num_t ENC_PIN_A[ENCODER_COUNT] = {
+//     GPIO_NUM_42, GPIO_NUM_46, GPIO_NUM_14, GPIO_NUM_16};
+// static const gpio_num_t ENC_PIN_B[ENCODER_COUNT] = {
+//     GPIO_NUM_41, GPIO_NUM_45, GPIO_NUM_15, GPIO_NUM_17};
+
+// /* ============================================================
+//  * PCNT 模式任务
+//  * ============================================================ */
+// #if ENCODER_USE_PCNT
+
+// void encoder_monitor_task(void *pvParameters)
+// {
+//     encoder_unit_handle_t handles[ENCODER_COUNT];
+
+//     for (int i = 0; i < ENCODER_COUNT; i++)
+//     {
+//         encoder_config_t cfg = DEFAULT_ENCODER_CONFIG();
+//         cfg.phase_a_gpio_num = ENC_PIN_A[i];
+//         cfg.phase_b_gpio_num = ENC_PIN_B[i];
+//         cfg.low_limit = -32000;
+//         cfg.high_limit = 32000;
+//         ESP_ERROR_CHECK(encoder_new_unit(&cfg, &handles[i]));
+//         ESP_LOGI(TAG, "[PCNT] 编码器%d 初始化完成 A=GPIO%d B=GPIO%d",
+//                  i + 1, ENC_PIN_A[i], ENC_PIN_B[i]);
+//     }
+
+//     while (1)
+//     {
+//         for (int i = 0; i < ENCODER_COUNT; i++)
+//         {
+//             int count = 0;
+//             encoder_get_counter(handles[i], &count);
+//             float rpm = encoder_get_rpm(handles[i], SPEED_SAMPLE_MS, PULSES_PER_REV);
+//             ESP_LOGI(TAG, "[PCNT] 编码器%d | 计数: %6d | RPM: %8.2f", i + 1, count, rpm);
+//         }
+//         vTaskDelay(pdMS_TO_TICKS(500));
+//     }
+// }
+
+// /* ============================================================
+//  * GPIO 中断模式任务
+//  * ============================================================ */
+// #else
+
+// void encoder_monitor_task(void *pvParameters)
+// {
+//     encoder_gpio_handle_t handles[ENCODER_COUNT];
+
+//     for (int i = 0; i < ENCODER_COUNT; i++)
+//     {
+//         ESP_ERROR_CHECK(encoder_gpio_new_unit(ENC_PIN_A[i], ENC_PIN_B[i], &handles[i]));
+//         ESP_LOGI(TAG, "[GPIO] 编码器%d 初始化完成 A=GPIO%d B=GPIO%d",
+//                  i + 1, ENC_PIN_A[i], ENC_PIN_B[i]);
+//     }
+
+//     while (1)
+//     {
+//         for (int i = 0; i < ENCODER_COUNT; i++)
+//         {
+//             int32_t count = encoder_gpio_get_count(handles[i]);
+//             float rpm = encoder_gpio_get_rpm(handles[i], SPEED_SAMPLE_MS, PULSES_PER_REV);
+//             ESP_LOGI(TAG, "[GPIO] 编码器%d | 计数: %6" PRId32 " | RPM: %8.2f", i + 1, count, rpm);
+//         }
+//         vTaskDelay(pdMS_TO_TICKS(500));
+//     }
+// }
+
+// #endif /* ENCODER_USE_PCNT */
+
+// // ==================== 电机 ====================
+
+// /**
+//  * @brief 电机控制任务
+//  */
+// void motor_control_task(void *pvParameters)
+// {
+//     ledc_init();
+//     ESP_LOGI(TAG, "电机控制任务启动");
+
+//     while (1)
+//     {
+//         // 正向满速
+//         set_motor_speed(100, 0);
+//         set_motor2_speed(100, 0);
+//         set_motor3_speed(100, 0);
+//         set_motor4_speed(100, 0);
+//         ESP_LOGI(TAG, "四电机正向满速");
+//         vTaskDelay(pdMS_TO_TICKS(3000));
+
+//         // 正向半速
+//         set_motor_speed(50, 0);
+//         set_motor2_speed(50, 0);
+//         set_motor3_speed(50, 0);
+//         set_motor4_speed(50, 0);
+//         ESP_LOGI(TAG, "四电机正向半速");
+//         vTaskDelay(pdMS_TO_TICKS(3000));
+
+//         // 反向满速
+//         set_motor_speed(0, 100);
+//         set_motor2_speed(0, 100);
+//         set_motor3_speed(0, 100);
+//         set_motor4_speed(0, 100);
+//         ESP_LOGI(TAG, "四电机反向满速");
+//         vTaskDelay(pdMS_TO_TICKS(3000));
+
+//         // 停止
+//         set_motor_speed(0, 0);
+//         set_motor2_speed(0, 0);
+//         set_motor3_speed(0, 0);
+//         set_motor4_speed(0, 0);
+//         ESP_LOGI(TAG, "四电机停止");
+//         vTaskDelay(pdMS_TO_TICKS(2000));
+//     }
+// }
+
+// // ==================== PCF8574 蜂鸣器音乐播放测试 ====================
+
+// /**
+//  * @brief PCF8574 蜂鸣器音乐播放测试任务
+//  * 使用 P3 引脚驱动蜂鸣器播放《莫愁乡》
+//  * 测试 PCF8574 在 400kHz I2C 速度下播放音乐的效果
+//  */
+// void pcf_buzzer_music_test_task(void *pvParameters)
+// {
+//     // 初始化 PCF8574（如果还未初始化）
+//     if (!pcf8574_initialized)
+//     {
+//         esp_err_t ret = pcf8574_init_desc(&pcf8574_device, 0x20, 0, 20, 21);
+//         if (ret != ESP_OK)
+//         {
+//             ESP_LOGE(TAG, "PCF8574 初始化失败: %s", esp_err_to_name(ret));
+//             vTaskDelete(NULL);
+//             return;
+//         }
+//         pcf8574_initialized = true;
+//         ESP_LOGI(TAG, "PCF8574 初始化完成 (地址 0x20)");
+//     }
+    
+//     vTaskDelay(pdMS_TO_TICKS(500));
+    
+//     ESP_LOGI(TAG, "========================================");
+//     ESP_LOGI(TAG, "PCF8574 蜂鸣器音乐播放测试");
+//     ESP_LOGI(TAG, "========================================");
+//     ESP_LOGI(TAG, "歌曲: 莫愁乡");
+//     ESP_LOGI(TAG, "音符数量: %d", MOCHOUXIANG_NOTE_COUNT);
+//     ESP_LOGI(TAG, "I2C 速度: 400kHz");
+//     ESP_LOGI(TAG, "蜂鸣器引脚: P3");
+//     ESP_LOGI(TAG, "========================================");
+    
+//     // 配置蜂鸣器
+//     pcf_buzzer_config_t buzzer_config = {
+//         .pcf_device = &pcf8574_device,
+//         .buzzer_pin = 4,        // P3 引脚
+//         .duty_cycle = 20,       // 20% 占空比
+//         .bpm = 132              // 每分钟 132 拍
+//     };
+    
+//     // 初始化蜂鸣器
+//     esp_err_t ret = pcf_buzzer_init(&buzzer_config);
+//     if (ret != ESP_OK)
+//     {
+//         ESP_LOGE(TAG, "蜂鸣器初始化失败: %s", esp_err_to_name(ret));
+//         vTaskDelete(NULL);
+//         return;
+//     }
+    
+//     ESP_LOGI(TAG, "蜂鸣器初始化成功");
+//     vTaskDelay(pdMS_TO_TICKS(1000));
+    
+//     // 播放音乐
+//     ESP_LOGI(TAG, "开始播放《莫愁乡》...");
+//     ESP_LOGI(TAG, "预计播放时长: %.1f 分钟", 
+//              (float)MOCHOUXIANG_NOTE_COUNT * 0.5f * 60.0f / 132.0f / 60.0f);
+    
+//     ret = pcf_buzzer_play(MoChouXiang, MOCHOUXIANG_NOTE_COUNT);
+//     if (ret != ESP_OK)
+//     {
+//         ESP_LOGE(TAG, "播放失败: %s", esp_err_to_name(ret));
+//         pcf_buzzer_deinit();
+//         vTaskDelete(NULL);
+//         return;
+//     }
+    
+//     // 等待播放完成
+//     while (pcf_buzzer_is_playing())
+//     {
+//         vTaskDelay(pdMS_TO_TICKS(1000));
+//     }
+    
+//     ESP_LOGI(TAG, "========================================");
+//     ESP_LOGI(TAG, "播放完成");
+//     ESP_LOGI(TAG, "========================================");
+//     ESP_LOGI(TAG, "性能评估:");
+//     ESP_LOGI(TAG, "  PCF8574 切换耗时: ~123μs");
+//     ESP_LOGI(TAG, "  低音 (262-494Hz): 音准偏差 <10%%");
+//     ESP_LOGI(TAG, "  中音 (523-880Hz): 音准偏差 10-20%%");
+//     ESP_LOGI(TAG, "  高音 (>880Hz): 失真明显");
+//     ESP_LOGI(TAG, "========================================");
+//     ESP_LOGI(TAG, "建议:");
+//     ESP_LOGI(TAG, "  1. 如需更好音质，使用 ESP32 GPIO + LEDC PWM");
+//     ESP_LOGI(TAG, "  2. 如需更高频率，提升 I2C 速度到 1MHz");
+//     ESP_LOGI(TAG, "  3. PCF8574 适合播放低音和简单旋律");
+//     ESP_LOGI(TAG, "========================================");
+    
+//     // 清理资源
+//     pcf_buzzer_deinit();
+//     vTaskDelete(NULL);
+// }
+
+// // ==================== PCF8574 性能测试 ====================
+
+// /**
+//  * @brief PCF8574 读写性能测试任务
+//  * 测试 P3 引脚的读写耗时
+//  * 使用 esp_timer_get_time() 进行微秒级精度测量
+//  */
+// void pcf8574_performance_test_task(void *pvParameters)
+// {
+//     // 初始化 PCF8574（如果还未初始化）
+//     if (!pcf8574_initialized)
+//     {
+//         esp_err_t ret = pcf8574_init_desc(&pcf8574_device, 0x20, 0, 20, 21);
+//         if (ret != ESP_OK)
+//         {
+//             ESP_LOGE(TAG, "PCF8574 初始化失败: %s", esp_err_to_name(ret));
+//             vTaskDelete(NULL);
+//             return;
+//         }
+//         pcf8574_initialized = true;
+//         ESP_LOGI(TAG, "PCF8574 初始化完成 (地址 0x20)");
+//     }
+    
+//     vTaskDelay(pdMS_TO_TICKS(500));
+    
+//     ESP_LOGI(TAG, "========================================");
+//     ESP_LOGI(TAG, "PCF8574 性能测试开始");
+//     ESP_LOGI(TAG, "测试引脚: P3");
+//     ESP_LOGI(TAG, "I2C 速度: 400kHz");
+//     ESP_LOGI(TAG, "时间测量工具: esp_timer_get_time() (微秒精度)");
+//     ESP_LOGI(TAG, "========================================");
+    
+//     const int TEST_COUNT = 100;  // 测试次数
+//     uint8_t p3_mask = 1 << 3;    // P3 引脚掩码
+//     uint8_t pcf_state = 0;
+//     esp_err_t ret;
+    
+//     // ========== 方案 1：单次测量 ==========
+//     ESP_LOGI(TAG, "\n【方案 1：单次读写测量】");
+//     ESP_LOGI(TAG, "预热阶段：执行 10 次操作...");
+    
+//     // 预热：前 10 次操作丢弃（缓存预热）
+//     for (int i = 0; i < 10; i++)
+//     {
+//         pcf8574_port_write(&pcf8574_device, 0x00);
+//         pcf8574_port_read(&pcf8574_device, &pcf_state);
+//     }
+    
+//     vTaskDelay(pdMS_TO_TICKS(100));
+    
+//     // 测量单次写操作
+//     int64_t write_times[TEST_COUNT];
+//     int64_t write_min = INT64_MAX, write_max = 0, write_sum = 0;
+    
+//     ESP_LOGI(TAG, "测量 %d 次单次写操作...", TEST_COUNT);
+//     for (int i = 0; i < TEST_COUNT; i++)
+//     {
+//         int64_t start = esp_timer_get_time();
+//         ret = pcf8574_port_write(&pcf8574_device, (i % 2) ? 0xFF : 0x00);
+//         int64_t end = esp_timer_get_time();
+        
+//         if (ret == ESP_OK)
+//         {
+//             write_times[i] = end - start;
+//             write_sum += write_times[i];
+//             if (write_times[i] < write_min) write_min = write_times[i];
+//             if (write_times[i] > write_max) write_max = write_times[i];
+//         }
+//         vTaskDelay(pdMS_TO_TICKS(1));  // 短暂延时避免总线拥塞
+//     }
+    
+//     int64_t write_avg = write_sum / TEST_COUNT;
+//     ESP_LOGI(TAG, "写操作统计 (%d 次):", TEST_COUNT);
+//     ESP_LOGI(TAG, "  平均耗时: %lld μs", write_avg);
+//     ESP_LOGI(TAG, "  最小耗时: %lld μs", write_min);
+//     ESP_LOGI(TAG, "  最大耗时: %lld μs", write_max);
+    
+//     vTaskDelay(pdMS_TO_TICKS(100));
+    
+//     // 测量单次读操作
+//     int64_t read_times[TEST_COUNT];
+//     int64_t read_min = INT64_MAX, read_max = 0, read_sum = 0;
+    
+//     ESP_LOGI(TAG, "测量 %d 次单次读操作...", TEST_COUNT);
+//     for (int i = 0; i < TEST_COUNT; i++)
+//     {
+//         int64_t start = esp_timer_get_time();
+//         ret = pcf8574_port_read(&pcf8574_device, &pcf_state);
+//         int64_t end = esp_timer_get_time();
+        
+//         if (ret == ESP_OK)
+//         {
+//             read_times[i] = end - start;
+//             read_sum += read_times[i];
+//             if (read_times[i] < read_min) read_min = read_times[i];
+//             if (read_times[i] > read_max) read_max = read_times[i];
+//         }
+//         vTaskDelay(pdMS_TO_TICKS(1));
+//     }
+    
+//     int64_t read_avg = read_sum / TEST_COUNT;
+//     ESP_LOGI(TAG, "读操作统计 (%d 次):", TEST_COUNT);
+//     ESP_LOGI(TAG, "  平均耗时: %lld μs", read_avg);
+//     ESP_LOGI(TAG, "  最小耗时: %lld μs", read_min);
+//     ESP_LOGI(TAG, "  最大耗时: %lld μs", read_max);
+    
+//     vTaskDelay(pdMS_TO_TICKS(500));
+    
+//     // ========== 方案 2：连续测量 ==========
+//     ESP_LOGI(TAG, "\n【方案 2：连续读写测量】");
+//     ESP_LOGI(TAG, "测量连续 %d 次写操作的总耗时...", TEST_COUNT);
+    
+//     int64_t continuous_write_start = esp_timer_get_time();
+//     for (int i = 0; i < TEST_COUNT; i++)
+//     {
+//         pcf8574_port_write(&pcf8574_device, (i % 2) ? 0xFF : 0x00);
+//     }
+//     int64_t continuous_write_end = esp_timer_get_time();
+//     int64_t continuous_write_total = continuous_write_end - continuous_write_start;
+//     int64_t continuous_write_avg = continuous_write_total / TEST_COUNT;
+    
+//     ESP_LOGI(TAG, "连续写操作统计 (%d 次):", TEST_COUNT);
+//     ESP_LOGI(TAG, "  总耗时: %lld μs", continuous_write_total);
+//     ESP_LOGI(TAG, "  平均耗时: %lld μs", continuous_write_avg);
+//     ESP_LOGI(TAG, "  吞吐率: %.2f 次/秒", 1000000.0 / continuous_write_avg);
+    
+//     vTaskDelay(pdMS_TO_TICKS(100));
+    
+//     ESP_LOGI(TAG, "测量连续 %d 次读操作的总耗时...", TEST_COUNT);
+    
+//     int64_t continuous_read_start = esp_timer_get_time();
+//     for (int i = 0; i < TEST_COUNT; i++)
+//     {
+//         pcf8574_port_read(&pcf8574_device, &pcf_state);
+//     }
+//     int64_t continuous_read_end = esp_timer_get_time();
+//     int64_t continuous_read_total = continuous_read_end - continuous_read_start;
+//     int64_t continuous_read_avg = continuous_read_total / TEST_COUNT;
+    
+//     ESP_LOGI(TAG, "连续读操作统计 (%d 次):", TEST_COUNT);
+//     ESP_LOGI(TAG, "  总耗时: %lld μs", continuous_read_total);
+//     ESP_LOGI(TAG, "  平均耗时: %lld μs", continuous_read_avg);
+//     ESP_LOGI(TAG, "  吞吐率: %.2f 次/秒", 1000000.0 / continuous_read_avg);
+    
+//     vTaskDelay(pdMS_TO_TICKS(500));
+    
+//     // ========== 方案 3：读写组合测量（RS485 实际场景）==========
+//     ESP_LOGI(TAG, "\n【方案 3：读写组合测量（RS485 DIR 控制场景）】");
+//     ESP_LOGI(TAG, "模拟场景：读取状态 → 修改 P3 → 写入状态");
+//     ESP_LOGI(TAG, "测量 %d 次完整周期...", TEST_COUNT);
+    
+//     int64_t cycle_times[TEST_COUNT];
+//     int64_t cycle_min = INT64_MAX, cycle_max = 0, cycle_sum = 0;
+    
+//     for (int i = 0; i < TEST_COUNT; i++)
+//     {
+//         int64_t cycle_start = esp_timer_get_time();
+        
+//         // 1. 读取当前状态
+//         ret = pcf8574_port_read(&pcf8574_device, &pcf_state);
+//         if (ret != ESP_OK) continue;
+        
+//         // 2. 修改 P3 引脚（模拟 DIR 控制）
+//         if (i % 2)
+//             pcf_state |= p3_mask;   // 拉高（发送模式）
+//         else
+//             pcf_state &= ~p3_mask;  // 拉低（接收模式）
+        
+//         // 3. 写入新状态
+//         ret = pcf8574_port_write(&pcf8574_device, pcf_state);
+        
+//         int64_t cycle_end = esp_timer_get_time();
+        
+//         if (ret == ESP_OK)
+//         {
+//             cycle_times[i] = cycle_end - cycle_start;
+//             cycle_sum += cycle_times[i];
+//             if (cycle_times[i] < cycle_min) cycle_min = cycle_times[i];
+//             if (cycle_times[i] > cycle_max) cycle_max = cycle_times[i];
+//         }
+        
+//         vTaskDelay(pdMS_TO_TICKS(1));
+//     }
+    
+//     int64_t cycle_avg = cycle_sum / TEST_COUNT;
+//     ESP_LOGI(TAG, "读写组合周期统计 (%d 次):", TEST_COUNT);
+//     ESP_LOGI(TAG, "  平均耗时: %lld μs", cycle_avg);
+//     ESP_LOGI(TAG, "  最小耗时: %lld μs", cycle_min);
+//     ESP_LOGI(TAG, "  最大耗时: %lld μs", cycle_max);
+//     ESP_LOGI(TAG, "  最大切换频率: %.2f Hz", 1000000.0 / cycle_avg);
+    
+//     vTaskDelay(pdMS_TO_TICKS(500));
+    
+//     // ========== 优化方案：缓存状态，只写不读 ==========
+//     ESP_LOGI(TAG, "\n【优化方案：缓存状态测量】");
+//     ESP_LOGI(TAG, "场景：使用缓存状态，只执行写操作（无读操作）");
+//     ESP_LOGI(TAG, "测量 %d 次优化后的 DIR 切换...", TEST_COUNT);
+    
+//     int64_t optimized_times[TEST_COUNT];
+//     int64_t optimized_min = INT64_MAX, optimized_max = 0, optimized_sum = 0;
+    
+//     pcf_state = 0x00;  // 初始状态
+    
+//     for (int i = 0; i < TEST_COUNT; i++)
+//     {
+//         int64_t opt_start = esp_timer_get_time();
+        
+//         // 直接修改缓存状态并写入（无需读取）
+//         if (i % 2)
+//             pcf_state |= p3_mask;
+//         else
+//             pcf_state &= ~p3_mask;
+        
+//         ret = pcf8574_port_write(&pcf8574_device, pcf_state);
+        
+//         int64_t opt_end = esp_timer_get_time();
+        
+//         if (ret == ESP_OK)
+//         {
+//             optimized_times[i] = opt_end - opt_start;
+//             optimized_sum += optimized_times[i];
+//             if (optimized_times[i] < optimized_min) optimized_min = optimized_times[i];
+//             if (optimized_times[i] > optimized_max) optimized_max = optimized_times[i];
+//         }
+        
+//         vTaskDelay(pdMS_TO_TICKS(1));
+//     }
+    
+//     int64_t optimized_avg = optimized_sum / TEST_COUNT;
+//     ESP_LOGI(TAG, "优化方案统计 (%d 次):", TEST_COUNT);
+//     ESP_LOGI(TAG, "  平均耗时: %lld μs", optimized_avg);
+//     ESP_LOGI(TAG, "  最小耗时: %lld μs", optimized_min);
+//     ESP_LOGI(TAG, "  最大耗时: %lld μs", optimized_max);
+//     ESP_LOGI(TAG, "  最大切换频率: %.2f Hz", 1000000.0 / optimized_avg);
+//     ESP_LOGI(TAG, "  性能提升: %.1f%%", (float)(cycle_avg - optimized_avg) * 100 / cycle_avg);
+    
+//     vTaskDelay(pdMS_TO_TICKS(500));
+    
+//     // ========== RS485 应用分析 ==========
+//     ESP_LOGI(TAG, "\n========================================");
+//     ESP_LOGI(TAG, "【RS485 应用分析】");
+//     ESP_LOGI(TAG, "========================================");
+//     ESP_LOGI(TAG, "1Mbps RS485 通信：");
+//     ESP_LOGI(TAG, "  每字节传输时间: 10 μs (10bit @ 1Mbps)");
+//     ESP_LOGI(TAG, "  DIR 切换耗时: %lld μs (优化方案)", optimized_avg);
+//     ESP_LOGI(TAG, "  相当于: %.1f 字节的传输时间", (float)optimized_avg / 10.0);
+//     ESP_LOGI(TAG, "");
+    
+//     if (optimized_avg < 50)
+//     {
+//         ESP_LOGI(TAG, "✓ 性能评估: 优秀");
+//         ESP_LOGI(TAG, "  PCF8574 可以满足 1Mbps RS485 通信需求");
+//     }
+//     else if (optimized_avg < 100)
+//     {
+//         ESP_LOGW(TAG, "⚠ 性能评估: 一般");
+//         ESP_LOGW(TAG, "  PCF8574 勉强满足需求，建议优化或降低波特率");
+//     }
+//     else
+//     {
+//         ESP_LOGE(TAG, "✗ 性能评估: 不足");
+//         ESP_LOGE(TAG, "  建议使用 ESP32 GPIO 直接控制 DIR 引脚");
+//     }
+    
+//     ESP_LOGI(TAG, "========================================");
+//     ESP_LOGI(TAG, "性能测试完成");
+//     ESP_LOGI(TAG, "========================================");
+    
+//     vTaskDelete(NULL);
+// }
+
+// // ==================== RS485 通信测试 ====================
+
+// /**
+//  * @brief RS485 通信测试任务
+//  * 使用 PCF8574 的 P3 作为 DIR 控制引脚
+//  * UART0: TX = GPIO43, RX = GPIO44, 波特率 1000000
+//  * 测试 PCF8574 控制引脚的速率是否满足高速 RS485 通信要求
+//  * 每秒发送一次数据，并接收回显
+//  */
+// void rs485_communication_task(void *pvParameters)
+// {
+//     // // 初始化 PCF8574（如果还未初始化）
+//     // if (!pcf8574_initialized)
+//     // {
+//     //     esp_err_t ret = pcf8574_init_desc(&pcf8574_device, 0x20, 0, 20, 21);
+//     //     if (ret != ESP_OK)
+//     //     {
+//     //         ESP_LOGE(TAG, "PCF8574 初始化失败: %s", esp_err_to_name(ret));
+//     //         ESP_LOGE(TAG, "请检查：1) PCF8574 是否连接 2) I2C 地址是否正确 3) 上拉电阻是否存在");
+//     //         vTaskDelete(NULL);
+//     //         return;
+//     //     }
+//     //     pcf8574_initialized = true;
+//     //     ESP_LOGI(TAG, "PCF8574 初始化完成 (地址 0x20)");
+//     // }
+
+//     // vTaskDelay(pdMS_TO_TICKS(100));
+
+//     // // 测试 PCF8574 驱动能力：将 P0-P7 全部拉高
+//     // ESP_LOGI(TAG, "========================================");
+//     // ESP_LOGI(TAG, "测试 PCF8574 驱动能力");
+//     // ESP_LOGI(TAG, "将 P0, P1, P2, P3, P4, P5, P6, P7 全部拉高");
+//     // ESP_LOGI(TAG, "========================================");
+
+//     // uint8_t all_high = 0xFF; // 所有引脚拉高
+//     // esp_err_t ret = pcf8574_port_write(&pcf8574_device, all_high);
+//     // if (ret != ESP_OK)
+//     // {
+//     //     ESP_LOGE(TAG, "PCF8574 写入失败: %s", esp_err_to_name(ret));
+//     //     vTaskDelete(NULL);
+//     //     return;
+//     // }
+
+//     // ESP_LOGI(TAG, "PCF8574 所有引脚已拉高 (写入值: 0xFF)");
+//     // vTaskDelay(pdMS_TO_TICKS(100));
+
+//     // 初始化 PCF8574（如果还未初始化）
+//     if (!pcf8574_initialized)
+//     {
+//         esp_err_t ret = pcf8574_init_desc(&pcf8574_device, 0x20, 0, 20, 21);
+//         if (ret != ESP_OK)
+//         {
+//             ESP_LOGE(TAG, "PCF8574 初始化失败: %s", esp_err_to_name(ret));
+//             ESP_LOGE(TAG, "请检查：1) PCF8574 是否连接 2) I2C 地址是否正确 3) 上拉电阻是否存在");
+//             vTaskDelete(NULL);
+//             return;
+//         }
+//         pcf8574_initialized = true;
+//         ESP_LOGI(TAG, "PCF8574 初始化完成 (地址 0x20)");
+//     }
+//     vTaskDelay(pdMS_TO_TICKS(10));
+//     uint8_t p3_mask = 1 << 3; // P3 引脚掩码
+//     uint8_t pcf_state = 0;
+
+//     // 初始化时读取一次 PCF 状态，后续直接使用缓存值
+//     esp_err_t ret = pcf8574_port_read(&pcf8574_device, &pcf_state);
+//     if (ret != ESP_OK)
+//     {
+//         ESP_LOGE(TAG, "PCF8574 读取失败: %s", esp_err_to_name(ret));
+//         ESP_LOGE(TAG, "PCF8574 通信失败，无法启动 RS485 测试");
+//         vTaskDelete(NULL);
+//         return;
+//     }
+//     vTaskDelay(pdMS_TO_TICKS(10));
+//     pcf_state &= ~p3_mask; // DIR 引脚拉低（接收模式）
+//     ret = pcf8574_port_write(&pcf8574_device, pcf_state);
+//     if (ret != ESP_OK)
+//     {
+//         ESP_LOGE(TAG, "PCF8574 写入失败: %s", esp_err_to_name(ret));
+//         vTaskDelete(NULL);
+//         return;
+//     }
+//     vTaskDelay(pdMS_TO_TICKS(10));
+//     // // 拉高 DIR 引脚（发送模式）
+//     // // pcf8574_port_write 是阻塞的，写入完成后 I2C 传输已完成，无需额外延时
+//     // pcf_state |= p3_mask;
+//     // ret = pcf8574_port_write(&pcf8574_device, pcf_state);
+//     // if (ret != ESP_OK)
+//     // {
+//     //     ESP_LOGE(TAG, "PCF8574 写入失败: %s", esp_err_to_name(ret));
+//     //     vTaskDelete(NULL);
+//     //     return;
+//     // }
+//     ESP_LOGI(TAG, "正在初始化 RS485 通信 (UART0: TX=GPIO43, RX=GPIO44, DIR=PCF_P3, 波特率=1000000)");
+//     vTaskDelay(pdMS_TO_TICKS(500));
+//     // 关闭所有日志输出，因为 UART0 是默认日志输出口
+//     esp_log_level_set("*", ESP_LOG_NONE);
+
+//     // 初始化 UART0，波特率 1000000
+//     if (uart0_init_with_baud(1000000) != ESP_OK)
+//     {
+//         vTaskDelete(NULL);
+//         return;
+//     }
+
+//     uint8_t send_buffer[64];
+//     uint8_t recv_buffer[128];
+//     uint32_t counter = 0;
+
+//     while (1)
+//     {
+//         // 准备发送数据
+//         int send_len = snprintf((char *)send_buffer, sizeof(send_buffer),
+//                                 "RS485 Test #%lu\r\n", counter++);
+
+//         // 拉高 DIR 引脚（发送模式）
+//         // pcf8574_port_write 是阻塞的，写入完成后 I2C 传输已完成，无需额外延时
+//         pcf_state |= p3_mask;
+//         ret = pcf8574_port_write(&pcf8574_device, pcf_state);
+//         if (ret != ESP_OK)
+//         {
+//             continue; // 写入失败，跳过本次循环
+//         }
+//         // 发送数据
+//         uart0_send(send_buffer, send_len);
+//         esp_rom_delay_us(100);
+
+//         // 拉低 DIR 引脚（接收模式）
+//         // uart0_send 是阻塞的，发送完成后直接切换到接收模式
+//         pcf_state &= ~p3_mask;
+//         ret = pcf8574_port_write(&pcf8574_device, pcf_state);
+//         if (ret != ESP_OK)
+//         {
+//             continue; // 写入失败，跳过本次循环
+//         }
+//         // 尝试接收数据
+//         int recv_len = uart0_recv(recv_buffer, sizeof(recv_buffer) - 1, pdMS_TO_TICKS(500));
+//         if (recv_len > 0)
+//         {
+//             recv_buffer[recv_len] = '\0'; // 添加字符串结束符
+//             // 使用 uart0_send 回显接收到的数据（不受日志关闭影响）
+//             // 拉高 DIR 引脚（发送模式）
+//             // pcf8574_port_write 是阻塞的，写入完成后 I2C 传输已完成，无需额外延时
+//             pcf_state |= p3_mask;
+//             ret = pcf8574_port_write(&pcf8574_device, pcf_state);
+//             if (ret != ESP_OK)
+//             {
+//                 continue; // 写入失败，跳过本次循环
+//             }
+//             uart0_send(recv_buffer, recv_len);
+//             esp_rom_delay_us(100);
+//             // 拉低 DIR 引脚（接收模式）
+//             // uart0_send 是阻塞的，发送完成后直接切换到接收模式
+//             pcf_state &= ~p3_mask;
+//             ret = pcf8574_port_write(&pcf8574_device, pcf_state);
+//             if (ret != ESP_OK)
+//             {
+//                 continue; // 写入失败，跳过本次循环
+//             }
+//         }
+//         // 间隔 1 秒
+//         vTaskDelay(pdMS_TO_TICKS(1000));
+//     }
+// }
+
+// // ==================== 485舵机 ====================
+
+// /**
+//  * @brief 485舵机测试任务
+//  */
+// void servo485_test_task(void *pvParameters)
+// {
+//     servo485_init();
+//     ESP_LOGI(TAG, "485舵机初始化完成");
+//     vTaskDelay(pdMS_TO_TICKS(1000));
+
+//     uint16_t pos1 = 400, pos2 = 600;
+//     uint8_t speed = 50;
+
+//     while (1)
+//     {
+//         ESP_LOGI(TAG, "所有舵机 -> 位置 %d", pos1);
+//         Set_Servo_position(0xFE, pos1, speed);
+//         vTaskDelay(pdMS_TO_TICKS(2000));
+
+//         ESP_LOGI(TAG, "所有舵机 -> 位置 %d", pos2);
+//         Set_Servo_position(0xFE, pos2, speed);
+//         vTaskDelay(pdMS_TO_TICKS(2000));
+//     }
+// }
+
+// // ==================== 传感器测试 ====================
+// /*
+//  * 完整引脚映射：
+//  * +---------------+------------------+----------+
+//  * | 接口标识      | ESP32 GPIO       | 功能     |
+//  * +---------------+------------------+----------+
+//  * | SSA1          | GPIO38           | DHT11    |
+//  * | SSA2          | GPIO37           | ssax1    |
+//  * | SSA3          | GPIO34           | TM_SCL   |
+//  * | SSD3          | GPIO33           | TM_SDA   |
+//  * | SSA6          | MTDO GPIO40      | VL53_SCL |
+//  * | SSD6          | MTCK GPIO39      | VL53_SDA |
+//  * | GPIO1         | ADC1_CH0         | ssdx ADC |
+//  * +---------------+------------------+----------+
+//  * ⚠️ 注意：VL53L0X 与 PCF8574 使用不同 I2C 总线（GPIO40/39 vs GPIO21/20），不冲突
+//  */
+
+// /**
+//  * @brief DHT11 温湿度传感器任务
+//  * 接口：SSA1 (GPIO38)
+//  */
+// void dht11_test_task(void *pvParameters)
+// {
+//     dht11_init(DHT11_PIN_1);
+//     ESP_LOGI(TAG, "DHT11 温湿度传感器任务启动");
+
+//     while (1)
+//     {
+//         dht11_read_task((void *)DHT11_PIN_1);
+//         vTaskDelay(pdMS_TO_TICKS(2000));
+//     }
+// }
+
+// /**
+//  * @brief TM1637 数码管显示任务
+//  * 接口：SCL = SSA3 (GPIO34), SDA = SSD3 (GPIO33)
+//  */
+// void tm1637_test_task(void *pvParameters)
+// {
+//     i2c_init();
+//     ESP_LOGI(TAG, "TM1637 数码管任务启动");
+
+//     uint16_t counter = 0;
+//     while (1)
+//     {
+//         tm1637_disp_num_process(counter);
+//         counter++;
+//         if (counter > 9999)
+//             counter = 0;
+//         vTaskDelay(pdMS_TO_TICKS(1000));
+//     }
+// }
+
+// /**
+//  * @brief VL53L0X 红外测距传感器任务
+//  * 接口：SCL = SSA6 (MTDO GPIO40), SDA = SSD6 (MTCK GPIO39)
+//  * ⚠️ 注意：使用独立 I2C 总线，与 PCF8574 的 IO20/IO21 不冲突
+//  */
+// void vl53l0x_test_task(void *pvParameters)
+// {
+//     i2c_init();
+//     Gir_distance_sensor_init();
+//     vTaskDelay(pdMS_TO_TICKS(1000));
+//     Gir_setMode(0); // 0: 高精度模式
+//     vTaskDelay(pdMS_TO_TICKS(1000));
+
+//     ESP_LOGI(TAG, "VL53L0X 测距任务启动");
+
+//     while (1)
+//     {
+//         getDistance();
+//         vTaskDelay(pdMS_TO_TICKS(500));
+//     }
+// }
+
+// /**
+//  * @brief ssax1 GPIO数字输入任务
+//  * 接口：SSA2 (GPIO37)，触摸传感器数字信号
+//  */
+// void ssax1_test_task(void *pvParameters)
+// {
+//     ssax1_gpio_init();
+//     ESP_LOGI(TAG, "ssax1 GPIO输入任务启动");
+
+//     while (1)
+//     {
+//         ssax1_read();
+//         vTaskDelay(pdMS_TO_TICKS(1000));
+//     }
+// }
+
+// /**
+//  * @brief ssdx ADC 电压采集任务
+//  * 接口：GPIO1 (ADC1_CH0)，模拟电压采集
+//  * 备注：ssdx_read_voltage(0) 对应通道0即 GPIO1
+//  */
+// void ssdx_test_task(void *pvParameters)
+// {
+//     ssdx_adc_init();
+//     ESP_LOGI(TAG, "ssdx ADC 电压采集任务启动");
+
+//     while (1)
+//     {
+//         int voltage = ssdx_read_voltage(0);
+//         ESP_LOGI(TAG, "GPIO1 电压: %d mV", voltage);
+//         vTaskDelay(pdMS_TO_TICKS(1000));
+//     }
+// }
+
+// // ==================== app_main ====================
+
+// void app_main(void)
+// {
+//     ESP_LOGI(TAG, "========================================");
+//     ESP_LOGI(TAG, "ESP32 传感器与外设多任务测试启动");
+//     ESP_LOGI(TAG, "========================================");
+
+//     // 初始化I2C驱动（PCF8574等I2C设备需要）
+//     ESP_ERROR_CHECK(i2cdev_init());
+
+//     // // I2C 总线扫描（用于诊断 PCF8574 连接问题）
+//     // ESP_LOGI(TAG, "开始扫描 I2C 总线...");
+//     // xTaskCreate(i2c_scan_task, "i2c_scan", configMINIMAL_STACK_SIZE * 3, NULL, 5, NULL);
+//     // vTaskDelay(pdMS_TO_TICKS(3000));  // 等待扫描完成
+
+//     // ---- 按需启用/禁用以下任务 ----
+
+//     // PCF8574 蜂鸣器音乐播放测试
+//     xTaskCreate(pcf_buzzer_music_test_task, "pcf_music_test", configMINIMAL_STACK_SIZE * 4, NULL, 5, NULL);
+
+//     // PCF8574 性能测试（读写耗时测量）
+//     // xTaskCreate(pcf8574_performance_test_task, "pcf_perf_test", configMINIMAL_STACK_SIZE * 4, NULL, 10, NULL);
+
+//     // PCF8574 PWM呼吸灯测试
+//     // xTaskCreate(pcf8574_pwm_breathing_task, "pcf8574_pwm", configMINIMAL_STACK_SIZE * 3, NULL, 5, NULL);
+
+//     // SPI Flash 读写测试
+//     xTaskCreate(spiflash_test_task, "spiflash_test", configMINIMAL_STACK_SIZE * 4, NULL, 5, NULL);
+
+//     // UART 回环测试
+//     // xTaskCreate(uart_loopback_task, "uart0_loop", configMINIMAL_STACK_SIZE * 3, (void*)0, 5, NULL);
+//     // xTaskCreate(uart_loopback_task, "uart1_loop", configMINIMAL_STACK_SIZE * 3, (void*)1, 5, NULL);
+
+//     // RS485 通信测试 / PCF8574 驱动能力测试
+//     // xTaskCreate(rs485_communication_task, "rs485_comm", configMINIMAL_STACK_SIZE * 3, NULL, 5, NULL);
+
+//     // 485舵机测试
+//     // xTaskCreate(servo485_test_task, "servo485", configMINIMAL_STACK_SIZE * 3, NULL, 5, NULL);
+
+//     //     ESP_LOGI(TAG, "========================================");
+//     // #if ENCODER_USE_PCNT
+//     //     ESP_LOGI(TAG, "编码器模式: PCNT 硬件计数（四倍频）");
+//     // #else
+//     //     ESP_LOGI(TAG, "编码器模式: GPIO 外部中断（四倍频）");
+//     // #endif
+//     //     ESP_LOGI(TAG, "每转脉冲数: %d  采样间隔: %d ms", PULSES_PER_REV, SPEED_SAMPLE_MS);
+//     //     ESP_LOGI(TAG, "========================================");
+
+//     // 电机控制
+//     xTaskCreate(motor_control_task, "motor_ctrl", configMINIMAL_STACK_SIZE * 3, NULL, 5, NULL);
+
+//     // ---- 传感器测试任务（按需启用） ----
+
+//     // DHT11 温湿度传感器
+//     xTaskCreate(dht11_test_task, "dht11_test", configMINIMAL_STACK_SIZE * 2, NULL, 5, NULL);
+
+//     // TM1637 数码管显示
+//     xTaskCreate(tm1637_test_task, "tm1637_test", configMINIMAL_STACK_SIZE * 2, NULL, 5, NULL);
+
+//     // VL53L0X 红外测距
+//     xTaskCreate(vl53l0x_test_task, "vl53l0x_test", configMINIMAL_STACK_SIZE * 2, NULL, 5, NULL);
+
+//     // ssax1 GPIO数字输入
+//     // xTaskCreate(ssax1_test_task, "ssax1_test", configMINIMAL_STACK_SIZE * 2, NULL, 5, NULL);
+
+//     // ssdx ADC 电压采集
+//     // xTaskCreate(ssdx_test_task, "ssdx_test", configMINIMAL_STACK_SIZE * 2, NULL, 5, NULL);
+// }
