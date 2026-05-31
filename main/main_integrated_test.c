@@ -14,6 +14,7 @@
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "driver/gpio.h"
+#include "pin_definitions.h"
 
 // 巡线
 #include "line_following.h"
@@ -88,7 +89,7 @@ void display_task(void *pvParameters)
             }
             case 2: {
                 // 触摸传感器：0 或 1
-                disp_val = (uint16_t)gpio_get_level(GPIO_NUM_37);
+                disp_val = (uint16_t)gpio_get_level(TOUCH_SENSOR_GPIO);
                 break;
             }
         }

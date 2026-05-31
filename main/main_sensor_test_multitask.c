@@ -44,6 +44,7 @@
 #include "ssdx.h"
 #include "pcf_buzzer.h"
 #include "music_data.h"
+#include "pin_definitions.h"
 
 static const char *TAG = "传感器多任务测试";
 
@@ -342,9 +343,9 @@ void uart_loopback_task(void *pvParameters)
 
 /* 编码器引脚表 */
 static const gpio_num_t ENC_PIN_A[ENCODER_COUNT] = {
-    GPIO_NUM_42, GPIO_NUM_46, GPIO_NUM_14, GPIO_NUM_16};
+    ENCODER1_B_GPIO, ENCODER2_B_GPIO, ENCODER3_A_GPIO, ENCODER4_A_GPIO};
 static const gpio_num_t ENC_PIN_B[ENCODER_COUNT] = {
-    GPIO_NUM_41, GPIO_NUM_45, GPIO_NUM_15, GPIO_NUM_17};
+    ENCODER1_A_GPIO, ENCODER2_A_GPIO, ENCODER3_B_GPIO, ENCODER4_B_GPIO};
 
 /* ============================================================
  * PCNT 模式任务

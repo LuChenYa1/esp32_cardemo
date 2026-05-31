@@ -25,7 +25,7 @@ static const char *TAG = "SSAX1";
 // 只配置未被其他传感器占用的数字输入引脚
 // SSA2: GPIO37 - 触摸传感器（数字信号）
 static const gpio_num_t gpio_pins[] = {
-    GPIO_NUM_37   // SSA2 - 触摸传感器（数字信号采集）
+    TOUCH_SENSOR_GPIO   // SSA2 - 触摸传感器（数字信号采集）
 };
 // 计算引脚数组的大小
 static const int num_pins = sizeof(gpio_pins) / sizeof(gpio_pins[0]);

@@ -29,6 +29,7 @@
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "pcf8574.h"
+#include "pin_definitions.h"
 
 static const char *TAG = "PCF8574_TEST";
 
@@ -78,7 +79,7 @@ void i2c_scan_bus(void)
         i2c_dev_t test_dev;
         esp_log_level_set("PCF8574", ESP_LOG_NONE);  // 临时关闭日志
         esp_err_t ret = pcf8574_init_desc(&test_dev, addr, I2C_NUM_0, 
-                                          GPIO_NUM_20, GPIO_NUM_21);
+                                          I2C_MASTER_SDA_GPIO, I2C_MASTER_SCL_GPIO);
         
         if (ret == ESP_OK)
         {
@@ -133,7 +134,7 @@ esp_err_t pcf8574_test_init(void)
     ESP_LOGI(TAG, "  SCL: GPIO21");
 
     esp_err_t ret = pcf8574_init_desc(&pcf_dev, 0x20, I2C_NUM_0, 
-                                      GPIO_NUM_20, GPIO_NUM_21);
+                                      I2C_MASTER_SDA_GPIO, I2C_MASTER_SCL_GPIO);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "PCF8574 初始化失败: %s", esp_err_to_name(ret));
         return ret;

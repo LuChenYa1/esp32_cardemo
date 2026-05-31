@@ -28,7 +28,7 @@ set(TEST_ACTIVE "main_spiflash_test")
 
 # 根据选择的测试程序设置源文件
 if(TEST_ACTIVE STREQUAL "main_spiflash_test")
-    set(MAIN_SRCS "main_spiflash_test.c")
+    set(MAIN_SRCS "main_multitask.c" "main_sensor_test_multitask.c" "main_spiflash_test.c")
 elseif(TEST_ACTIVE STREQUAL "main_wireless_test")
     set(MAIN_SRCS "main_wireless_test.c")
 elseif(TEST_ACTIVE STREQUAL "main_pcf8574_test")

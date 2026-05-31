@@ -1,11 +1,7 @@
 #ifndef KEY_H
 #define KEY_H
 
-#include "driver/gpio.h"
-
-
-#define KEY1_GPIO GPIO_NUM_38 
-#define KEY2_GPIO GPIO_NUM_37  
+#include "pin_definitions.h"
 
 
 void key_init(void);

@@ -153,6 +153,9 @@ extern "C" {
 // 注意：GPIO38只能作为输入
 // ========================================
 #define IR_OBSTACLE_GPIO         GPIO_NUM_38  // 红外避障传感器 [SSA1] (Input Only)
+#define KEY1_GPIO                GPIO_NUM_38  // KEY1 [SSA1]
+#define KEY2_GPIO                GPIO_NUM_37  // KEY2 [SSA2]
+#define TOUCH_SENSOR_GPIO        GPIO_NUM_37  // 触摸传感器 [SSA2]
 
 // ========================================
 // 交通灯控制（2个GPIO - 数字输出）
