@@ -14,7 +14,6 @@ idf_component_register(SRCS "main.c" "line_following.c" "turn_detection.c"
                     wireless 
                     esp_timer 
                     tm1637 
-                    tm1640 
                     ssax1 
                     ssdx 
                     pwm 

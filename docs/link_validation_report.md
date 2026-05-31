@@ -165,13 +165,9 @@
 **hc-sr04/README.md:**
 - ✅ `../../docs/GPIO_PIN_ALLOCATION.md`
 
-**mpu_6050/README.md:**
 - ✅ `../../docs/GPIO_PIN_ALLOCATION.md`
-- ✅ `../i2c/README.md`
 
-**vl53l0/README.md:**
 - ✅ `../../docs/GPIO_PIN_ALLOCATION.md`
-- ✅ `../i2c/README.md`
 
 #### 控制类组件
 
@@ -214,7 +210,6 @@
 - ✅ `../../docs/GPIO_PIN_ALLOCATION.md`
 - ✅ `../board_config/README.md`
 
-**tm1640/README.md:**
 - ✅ `../../docs/GPIO_PIN_ALLOCATION.md`
 
 **display_task/README.md:**
@@ -266,7 +261,6 @@
 
 **pcf8574/README.md:**
 - ✅ `../../docs/GPIO_PIN_ALLOCATION.md`
-- ✅ `../i2c/README.md`
 
 **pcf_buzzer/README.md:**
 - ✅ `../pcf8574/README.md`
@@ -286,7 +280,6 @@
 
 **five_way_gray_i2c/README.md:**
 - ✅ `../../docs/GPIO_PIN_ALLOCATION.md`
-- ✅ `../i2c/README.md`
 
 **i2c/README.md:**
 - ✅ `../../docs/GPIO_PIN_ALLOCATION.md`

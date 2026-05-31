@@ -171,14 +171,12 @@
 
 ## 📋 阶段4：网络和未使用模块（标记状态）
 
-### Task 4.1: vl53l0 激光测距
 - **状态**: ✅ 已完成
 - **优先级**: 🟢 低
 - **说明**: 已从项目中移除，GPIO39/40改用于交通灯
 - **任务**: 创建 README.md 标记为已移除
 - **完成时间**: 2024-12-XX
 
-### Task 4.2: mpu_6050 陀螺仪
 - **状态**: ✅ 已完成
 - **优先级**: 🟢 低
 - **说明**: 当前项目未使用
@@ -310,8 +308,6 @@ components/
 ├── spiflash/README.md
 ├── ssax1/README.md
 ├── ssdx/README.md
-├── vl53l0/README.md
-├── mpu_6050/README.md
 ├── tcp/README.md
 ├── udp/README.md
 ├── wifi/README.md

@@ -9,4 +9,3 @@
 
 idf_component_register(SRCS "sensor_test_multitask.c" "gpio_drive_test.c" "main_multitask.c" "main_integrated_test.c" "main_display_test.c" "main_adc_sampling_test.c" "main_pd_test.c" "main_cartest.c" "main_servo_test.c" "main.c" "line_following.c" "turn_detection.c"
                     INCLUDE_DIRS "."
-                    REQUIRES dht11 esp_timer i2c vl53l0 tm1637 ssax1 ssdx pwm pcf8574 encoder spiflash 485servo uart gray_sensor pcf_buzzer timer_system turn_detector pd_controller turn_statemachine display_task servo_task)k)

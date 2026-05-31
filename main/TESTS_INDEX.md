@@ -54,7 +54,6 @@
 | 文件名 | 测试目的 | 维护状态 | 依赖组件 | 说明文档 |
 |--------|---------|---------|---------|---------|
 | `main_display_test.c` | TM1637数码管测试 | ✅ 活跃 | tm1637, display_task |  |
-| `main_tm1640_test.c` | TM1640点阵屏测试 | ✅ 活跃 | tm1640 | [TM1640_TEST_README.md](TM1640_TEST_README.md) |
 
 ### 通信类测试
 
@@ -101,7 +100,6 @@ main/
 │
 ├── 显示类测试/
 │   ├── main_display_test.c
-│   └── main_tm1640_test.c
 │
 ├── 通信类测试/
 │   ├── main_voice_test.c
@@ -112,7 +110,6 @@ main/
 │
 ├── 说明文档/
 │   ├── GRAY_CALIBRATION_README.md
-│   ├── TM1640_TEST_README.md
 │   ├── PCF8574_TEST_README.md
 │   └── FIVE_WAY_GRAY_TEST_README.md
 │
@@ -150,7 +147,6 @@ main.c
 - `gray_calibration_test.c` - 灰度传感器校准
 - `main_timer_test.c` - 定时器测试
 - `main_display_test.c` - 数码管测试
-- `main_tm1640_test.c` - 点阵屏测试
 - `main_pcf8574_test.c` - PCF8574测试
 - `main_voice_test.c` - 语音模块测试
 - `main_wireless_test.c` - 无线通信测试
@@ -266,7 +262,6 @@ idf.py build flash monitor
 ### Q4：测试程序之间有冲突吗？
 
 **A：** 某些测试程序可能使用相同的GPIO引脚：
-- TM1637和TM1640共用GPIO34/37
 - 不同传感器可能共用ADC通道
 - 建议一次只运行一个测试程序
 

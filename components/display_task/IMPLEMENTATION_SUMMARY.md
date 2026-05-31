@@ -12,7 +12,6 @@
 - 创建优先级为3的FreeRTOS任务
 - 初始化TM1637数码管驱动（GPIO33/34）
 - 初始化DHT11温湿度传感器（GPIO38）
-- 初始化VL53L0X测距传感器（I2C GPIO39/40）
 - 初始化光照传感器ADC通道（GPIO36/ADC1_CH0）
 
 **关键代码**：
@@ -96,11 +95,9 @@ case DISPLAY_MODE_TEMP_HUMI:
 ```
 
 #### 距离模式
-- 读取VL53L0X，单位cm，范围0-9999
 
 ```c
 case DISPLAY_MODE_DISTANCE:
-    float dist_cm = getDistance();
     if (dist_cm < 0.0f) dist_cm = 0.0f;
     if (dist_cm > 9999.0f) dist_cm = 9999.0f;
     display_value = (uint16_t)dist_cm;
@@ -163,8 +160,6 @@ main/
 |------|------|------|
 | 光照传感器 | GPIO36 (ADC1_CH0) | 模拟输入 |
 | DHT11数据 | GPIO38 | 数字输入/输出 |
-| VL53L0X SDA | GPIO39 | I2C数据线 |
-| VL53L0X SCL | GPIO40 | I2C时钟线 |
 | TM1637 DIO | GPIO33 | 数码管数据 |
 | TM1637 CLK | GPIO34 | 数码管时钟 |
 
@@ -185,7 +180,6 @@ main/
 - `esp_adc`：ADC oneshot API
 - `tm1637`：TM1637数码管驱动
 - `dht11`：DHT11温湿度传感器驱动
-- `vl53l0`：VL53L0X测距传感器驱动
 - `i2c`：I2C配置
 
 ## 测试验证
@@ -256,14 +250,12 @@ static dht11_data_t last_valid_dht = {...};           // 上次有效DHT11数据
    - 当前实现每5秒读取一次，符合要求
 
 3. **I2C总线共享**
-   - VL53L0X使用独立的I2C引脚（GPIO39/40）
    - 不与其他I2C设备冲突
 
 ## 后续优化建议
 
 1. **性能优化**
    - 考虑使用DMA方式读取ADC，减少CPU占用
-   - 优化VL53L0X读取时间，使用连续测量模式
 
 2. **功能扩展**
    - 支持用户自定义显示模式顺序

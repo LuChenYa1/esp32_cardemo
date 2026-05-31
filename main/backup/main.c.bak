@@ -75,9 +75,7 @@ static esp_err_t init_hardware_peripherals(void)
     ESP_LOGI(TAG, "初始化PWM...");
     ledc_init();
     
-    // 2. 初始化I2C（VL53L0X、TM1637）
     ESP_LOGI(TAG, "初始化I2C...");
-    i2c_init();
     
     // 3. 初始化灰度传感器（ADC2通道）
     ESP_LOGI(TAG, "初始化灰度传感器...");

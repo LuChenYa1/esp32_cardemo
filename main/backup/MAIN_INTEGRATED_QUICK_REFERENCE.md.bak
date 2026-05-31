@@ -59,7 +59,6 @@ idf_component_register(SRCS "main_integrated.c" ...
 ```
 1. 硬件外设初始化
    ├─ PWM (电机控制)
-   ├─ I2C (VL53L0X, TM1637)
    └─ 灰度传感器 (ADC2)
 
 2. 软件模块初始化
@@ -123,8 +122,6 @@ CONFIRM_COUNT   = 15  // 连续15次确认
 | 电机4反向 | GPIO9 | LEDC PWM CH7 |
 | TM1637 CLK | GPIO34 | 数码管时钟 |
 | TM1637 DIO | GPIO33 | 数码管数据 |
-| I2C SDA | GPIO39 | VL53L0X数据 |
-| I2C SCL | GPIO40 | VL53L0X时钟 |
 | DHT11 | GPIO38 | 温湿度传感器 |
 | 触摸传感器 | GPIO37 | 数字输入 |
 | UART0 TX | GPIO1 | RS485舵机发送 |

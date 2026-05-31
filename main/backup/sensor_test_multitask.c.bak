@@ -9,7 +9,6 @@
 //  * 3. SPI Flash 读写测试
 //  * 4. UART 串口回环测试
 //  * 5. 485舵机控制测试
-//  * 6. 传感器测试（DHT11、TM1637、VL53L0X、ssax1、ssdx）
 //  *
 //  * 传感器接线：
 //  * +---------------+------------------+--------+
@@ -43,7 +42,6 @@
 // #include "uart_app.h"
 // #include "dht11.h"
 // #include "tm1637.h"
-// #include "vl53l0.h"
 // #include "ssax1.h"
 // #include "ssdx.h"
 // #include "pcf_buzzer.h"
@@ -107,7 +105,6 @@
 //  *   SCL = IO21
 //  *   地址 = 0x20
 //  *   输出引脚 = P2, P3
-//  * 注意：与 VL53L0X 共用 I2C 总线，地址不同可共存
 //  * P2: PWM 呼吸灯
 //  * P3: RS485 DIR 控制
 //  */
@@ -1031,7 +1028,6 @@
 //  * | SSD6          | MTCK GPIO39      | VL53_SDA |
 //  * | GPIO1         | ADC1_CH0         | ssdx ADC |
 //  * +---------------+------------------+----------+
-//  * ⚠️ 注意：VL53L0X 与 PCF8574 使用不同 I2C 总线（GPIO40/39 vs GPIO21/20），不冲突
 //  */
 
 // /**
@@ -1056,7 +1052,6 @@
 //  */
 // void tm1637_test_task(void *pvParameters)
 // {
-//     i2c_init();
 //     ESP_LOGI(TAG, "TM1637 数码管任务启动");
 
 //     uint16_t counter = 0;
@@ -1071,23 +1066,16 @@
 // }
 
 // /**
-//  * @brief VL53L0X 红外测距传感器任务
 //  * 接口：SCL = SSA6 (MTDO GPIO40), SDA = SSD6 (MTCK GPIO39)
 //  * ⚠️ 注意：使用独立 I2C 总线，与 PCF8574 的 IO20/IO21 不冲突
 //  */
-// void vl53l0x_test_task(void *pvParameters)
 // {
-//     i2c_init();
-//     Gir_distance_sensor_init();
 //     vTaskDelay(pdMS_TO_TICKS(1000));
-//     Gir_setMode(0); // 0: 高精度模式
 //     vTaskDelay(pdMS_TO_TICKS(1000));
 
-//     ESP_LOGI(TAG, "VL53L0X 测距任务启动");
 
 //     while (1)
 //     {
-//         getDistance();
 //         vTaskDelay(pdMS_TO_TICKS(500));
 //     }
 // }
@@ -1186,8 +1174,6 @@
 //     // TM1637 数码管显示
 //     xTaskCreate(tm1637_test_task, "tm1637_test", configMINIMAL_STACK_SIZE * 2, NULL, 5, NULL);
 
-//     // VL53L0X 红外测距
-//     xTaskCreate(vl53l0x_test_task, "vl53l0x_test", configMINIMAL_STACK_SIZE * 2, NULL, 5, NULL);
 
 //     // ssax1 GPIO数字输入
 //     // xTaskCreate(ssax1_test_task, "ssax1_test", configMINIMAL_STACK_SIZE * 2, NULL, 5, NULL);

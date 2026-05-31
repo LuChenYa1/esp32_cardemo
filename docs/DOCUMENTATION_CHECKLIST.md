@@ -128,7 +128,6 @@
 | ir_obstacle | ⏳ | ⏳ | main.c使用中 |
 | key | ⏳ | ⏳ | 未使用 |
 | led | ⏳ | ⏳ | 未使用 |
-| mpu_6050 | ⏳ | ⏳ | 未使用 |
 | pcf_buzzer | ⏳ | ⏳ | 未使用 |
 | pcf8574 | ⏳ | ⏳ | 未使用 |
 | pd_controller | ⏳ | ⏳ | main.c使用中 |
@@ -140,14 +139,12 @@
 | tcp | ⏳ | ⏳ | 未使用 |
 | timer_system | ⏳ | ⏳ | main.c使用中 |
 | tm1637 | ⏳ | ⏳ | main.c使用中 |
-| tm1640 | ⏳ | ⏳ | 未使用 |
 | traffic_light | ⏳ | ⏳ | main.c使用中 |
 | turn_detector | ⏳ | ⏳ | main.c使用中 |
 | turn_statemachine | ⏳ | ⏳ | main.c使用中 |
 | uart | ⏳ | ⏳ | 未使用 |
 | udp | ⏳ | ⏳ | 未使用 |
 | us_delay | ⏳ | ⏳ | 未使用 |
-| vl53l0 | ⏳ | ⏳ | 未使用 |
 | voice_module | ⏳ | ⏳ | main.c使用中 |
 | wifi | ⏳ | ⏳ | 未使用 |
 | wireless | ⏳ | ⏳ | 未使用 |
@@ -241,7 +238,6 @@
 | ir_obstacle | ⏳ | ⏳ | ⏳ | ⏳ | |
 | key | ⏳ | ⏳ | ⏳ | ⏳ | |
 | led | ⏳ | ⏳ | ⏳ | ⏳ | |
-| mpu_6050 | ⏳ | ⏳ | ⏳ | ⏳ | |
 | pcf_buzzer | ⏳ | ⏳ | ⏳ | ⏳ | |
 | pcf8574 | ⏳ | ⏳ | ⏳ | ⏳ | |
 | pd_controller | ⏳ | ⏳ | ⏳ | ⏳ | |
@@ -253,14 +249,12 @@
 | tcp | ⏳ | ⏳ | ⏳ | ⏳ | |
 | timer_system | ⏳ | ⏳ | ⏳ | ⏳ | |
 | tm1637 | ⏳ | ⏳ | ⏳ | ⏳ | |
-| tm1640 | ⏳ | ⏳ | ⏳ | ⏳ | |
 | traffic_light | ⏳ | ⏳ | ⏳ | ⏳ | |
 | turn_detector | ⏳ | ⏳ | ⏳ | ⏳ | |
 | turn_statemachine | ⏳ | ⏳ | ⏳ | ⏳ | |
 | uart | ⏳ | ⏳ | ⏳ | ⏳ | |
 | udp | ⏳ | ⏳ | ⏳ | ⏳ | |
 | us_delay | ⏳ | ⏳ | ⏳ | ⏳ | |
-| vl53l0 | ⏳ | ⏳ | ⏳ | ⏳ | |
 | voice_module | ⏳ | ⏳ | ⏳ | ⏳ | |
 | wifi | ⏳ | ⏳ | ⏳ | ⏳ | |
 | wireless | ⏳ | ⏳ | ⏳ | ⏳ | |

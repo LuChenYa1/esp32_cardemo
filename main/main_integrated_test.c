@@ -3,7 +3,7 @@
  *
  * 功能：
  * 1. 巡线小车（主任务，高优先级）- PD控制 + 十字路口右转
- * 2. 数码管轮播显示：5s距离 / 5s温湿度 / 5s触摸状态
+ * 2. 数码管轮播显示：5s备用 / 5s温湿度 / 5s触摸状态
  * 3. 485舵机往复运动（独立任务）
  *
  * 注意：485使用UART0，需关闭日志输出
@@ -19,10 +19,7 @@
 #include "line_following.h"
 #include "gray_sensor.h"
 #include "pwm.h"
-
-// 传感器 & 显示
-#include "i2c.h"
-#include "vl53l0.h"
+// 传感器显示
 #include "tm1637.h"
 #include "dht11.h"
 #include "ssax1.h"
@@ -52,31 +49,19 @@ static const char *TAG = "综合测试";
 #define SERVO_INTERVAL_MS   2000
 
 // ==================== 数码管轮播显示任务 ====================
-// 轮播模式：0=距离, 1=温湿度, 2=触摸状态
+// 轮播模式：0=备用, 1=温湿度, 2=触摸状态
 #define DISPLAY_INTERVAL_MS  5000   // 每个模式显示5秒
 #define DISPLAY_REFRESH_MS   200    // 刷新间隔200ms
 
 /**
- * @brief 数码管轮播任务
- * 每5秒切换显示：
- *   模式0 - 距离，单位cm，范围 0~9999
- *   模式1 - 温湿度，格式 TTHH（前两位=温度℃，后两位=湿度%），范围 0099~5090
- *   模式2 - 触摸状态，显示 0 或 1
  */
 void display_task(void *pvParameters)
 {
-    // 初始化 VL53L0X
-    Gir_distance_sensor_init();
-    vTaskDelay(pdMS_TO_TICKS(1000));
-    Gir_setMode(0); // 高精度模式
-    vTaskDelay(pdMS_TO_TICKS(500));
-
     // 初始化触摸传感器 GPIO37
     ssax1_gpio_init();
 
     uint8_t  mode           = 0;
     uint32_t mode_ticks     = 0;
-    // 每个模式持续 5000ms / 200ms = 25 次刷新
     const uint32_t ticks_per_mode = DISPLAY_INTERVAL_MS / DISPLAY_REFRESH_MS;
 
     while (1) {
@@ -84,11 +69,7 @@ void display_task(void *pvParameters)
 
         switch (mode) {
             case 0: {
-                // 距离（cm），VL53L0X 量程约 0~200cm，限制在 9999 以内防溢出
-                float dist = getDistance();
-                if (dist < 0.0f)    dist = 0.0f;
-                if (dist > 9999.0f) dist = 9999.0f;
-                disp_val = (uint16_t)dist;
+                disp_val = 0;
                 break;
             }
             case 1: {
@@ -156,8 +137,6 @@ void app_main(void)
     gray_sensor_set_calibration(GRAY_SENSOR_RIGHT, RIGHT_WHITE, RIGHT_BLACK);
 
     ledc_init();
-    i2c_init();
-
     vTaskDelay(pdMS_TO_TICKS(500));
 
     // 关闭所有日志，因为UART0是默认日志输出口，会影响485通信

@@ -186,7 +186,6 @@
 | GPIO36 | ADC1_CH0 | UART1_RX（冲突） |
 | GPIO37 | ADC1_CH1 | 触摸传感器 |
 | GPIO38 | ADC1_CH2 | DHT11（数字信号） |
-| GPIO39 | ADC1_CH3 | VL53L0X_SDA（I2C） |
 | GPIO34 | ADC1_CH6 | TM1637_SCL（数字信号） |
 | GPIO47 | ADC1_CH6 | **可用于灰度传感器** |
 | GPIO48 | ADC1_CH7 | **可用于灰度传感器** |

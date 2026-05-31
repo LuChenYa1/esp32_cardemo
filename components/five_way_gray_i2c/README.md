@@ -336,7 +336,6 @@ five_way_gray_i2c_any_black_detected(600);  // 使用600作为阈值
 - [引脚定义](../board_config/include/pin_definitions.h)
 - [GPIO管理器](../board_config/README.md)
 - [二路ADC灰度传感器](../gray_sensor/README.md)
-- [I2C组件](../i2c/README.md)
 
 ## 技术支持
 

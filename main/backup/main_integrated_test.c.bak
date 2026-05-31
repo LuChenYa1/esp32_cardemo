@@ -22,7 +22,6 @@
 
 // // 传感器 & 显示
 // #include "i2c.h"
-// #include "vl53l0.h"
 // #include "tm1637.h"
 // #include "dht11.h"
 // #include "ssax1.h"
@@ -65,10 +64,7 @@
 //  */
 // void display_task(void *pvParameters)
 // {
-//     // 初始化 VL53L0X
-//     Gir_distance_sensor_init();
 //     vTaskDelay(pdMS_TO_TICKS(1000));
-//     Gir_setMode(0); // 高精度模式
 //     vTaskDelay(pdMS_TO_TICKS(500));
 
 //     // 初始化 DHT11
@@ -89,8 +85,6 @@
 
 //         switch (mode) {
 //             case 0: {
-//                 // 距离（cm），VL53L0X 量程约 0~200cm，限制在 9999 以内防溢出
-//                 float dist = getDistance();
 //                 if (dist < 0.0f)    dist = 0.0f;
 //                 if (dist > 9999.0f) dist = 9999.0f;
 //                 disp_val = (uint16_t)dist;
@@ -159,7 +153,6 @@
 //     gray_sensor_set_calibration(GRAY_SENSOR_RIGHT, RIGHT_WHITE, RIGHT_BLACK);
 
 //     ledc_init();
-//     i2c_init();
 
 //     vTaskDelay(pdMS_TO_TICKS(500));
 

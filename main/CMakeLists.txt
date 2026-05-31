@@ -8,7 +8,6 @@
 # 可选值:
 #   main_spiflash_test        - SPI Flash读写测试
 #   main_wireless_test        - 无线通信模块测试
-#   main_tm1640_test          - TM1640 LED点阵屏测试
 #   main_pcf8574_test         - PCF8574 I2C扩展芯片测试
 #   gray_calibration_test     - 灰度传感器校准测试
 #   main_integrated_test      - 综合测试（巡线+显示+舵机）
@@ -32,8 +31,6 @@ if(TEST_ACTIVE STREQUAL "main_spiflash_test")
     set(MAIN_SRCS "main_spiflash_test.c")
 elseif(TEST_ACTIVE STREQUAL "main_wireless_test")
     set(MAIN_SRCS "main_wireless_test.c")
-elseif(TEST_ACTIVE STREQUAL "main_tm1640_test")
-    set(MAIN_SRCS "main_tm1640_test.c")
 elseif(TEST_ACTIVE STREQUAL "main_pcf8574_test")
     set(MAIN_SRCS "main_pcf8574_test.c")
 elseif(TEST_ACTIVE STREQUAL "gray_calibration_test")
@@ -73,7 +70,6 @@ idf_component_register(SRCS ${MAIN_SRCS}
                     wireless 
                     esp_timer 
                     tm1637 
-                    tm1640 
                     ssax1 
                     ssdx 
                     pwm 

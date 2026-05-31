@@ -117,8 +117,6 @@ esp32-module-integration/
 | ir_obstacle | [../components/ir_obstacle/README.md](../components/ir_obstacle/README.md) | 红外避障传感器 | ✅ 使用中 |
 | dht11 | [../components/dht11/README.md](../components/dht11/README.md) | 温湿度传感器 | ⏸️ 未使用 |
 | hc-sr04 | [../components/hc-sr04/README.md](../components/hc-sr04/README.md) | 超声波测距传感器 | ⏸️ 未使用 |
-| mpu_6050 | [../components/mpu_6050/README.md](../components/mpu_6050/README.md) | 六轴传感器（陀螺仪+加速度计） | ⏸️ 未使用 |
-| vl53l0 | [../components/vl53l0/README.md](../components/vl53l0/README.md) | 激光测距传感器 | ⏸️ 未使用 |
 
 ### 控制类组件（3个）
 
@@ -144,7 +142,6 @@ esp32-module-integration/
 |---------|---------|---------|---------|
 | tm1637 | [../components/tm1637/README.md](../components/tm1637/README.md) | TM1637数码管驱动 | ✅ 使用中 |
 | display_task | [../components/display_task/README.md](../components/display_task/README.md) | 显示任务，轮播显示 | ✅ 使用中 |
-| tm1640 | [../components/tm1640/README.md](../components/tm1640/README.md) | TM1640数码管驱动 | ⏸️ 未使用 |
 | led | [../components/led/README.md](../components/led/README.md) | LED控制 | ⏸️ 未使用 |
 
 ### 通信类组件（8个）
@@ -191,7 +188,6 @@ esp32-module-integration/
 |---------|---------|---------|
 | main.c | - | 完整集成主程序 |
 | main_wireless_test.c | [../main/WIRELESS_TEST_README.md](../main/WIRELESS_TEST_README.md) | 无线通信测试 |
-| main_tm1640_test.c | - | TM1640数码管测试 |
 | main_servo_test.c | - | 舵机控制测试 |
 | main_voice_test.c | - | 语音模块测试 |
 

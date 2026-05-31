@@ -17,7 +17,6 @@
 // // 数码管显示任务
 // #include "display_task.h"
 
-// // I2C初始化（VL53L0X和TM1637需要）
 // #include "i2c.h"
 
 // static const char *TAG = "DISPLAY_TEST";
@@ -39,7 +38,6 @@
 //     }
 //     ESP_ERROR_CHECK(ret);
     
-//     // 初始化I2C GPIO（VL53L0X和TM1637使用）
 //     Distance_IO_Init();
 //     ESP_LOGI(TAG, "I2C GPIO初始化完成");
     
@@ -61,7 +59,6 @@
 //     ESP_LOGI(TAG, "");
 //     ESP_LOGI(TAG, "测试验证：");
 //     ESP_LOGI(TAG, "- 遮挡光照传感器，观察光照模式数值变化");
-//     ESP_LOGI(TAG, "- 在VL53L0X前放置物体，观察距离模式数值变化");
 //     ESP_LOGI(TAG, "- 断开DHT11，观察温湿度模式是否保持上次值");
 //     ESP_LOGI(TAG, "========================================");
     

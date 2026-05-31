@@ -19,7 +19,6 @@
 #include "esp_system.h"
 #include "dht11.h"
 #include "i2c.h"
-#include "vl53l0.h"
 #include "tm1637.h"
 #include "ssax1.h"
 #include "ssdx.h"
@@ -532,7 +531,6 @@ void app_main(void)
 //  * 功能说明：
 //  * 1. DHT11温湿度传感器测试
 //  * 2. TM1637四位数码管显示测试
-//  * 3. VL53L0X红外测距传感器测试
 //  * 4. GPIO数字输入测试
 //  * 5. ADC模拟电压采集测试
 //  */
@@ -546,7 +544,6 @@ void app_main(void)
 // #include "esp_system.h"
 // #include "dht11.h"
 // #include "i2c.h"
-// #include "vl53l0.h"
 // #include "tm1637.h"
 // #include "ssax1.h"
 // #include "ssdx.h"
@@ -657,7 +654,6 @@ void app_main(void)
 // //  *   - SCL时钟: SSA3 (GPIO34)
 // //  *   - SDA数据: SSD3 (GPIO33)
 // //  * 
-// //  * VL53L0X红外测距传感器:
 // //  *   - SCL时钟: SSA6 (MTDO GPIO40)
 // //  *   - SDA数据: SSD6 (MTCK GPIO39)
 // //  * 
@@ -702,16 +698,12 @@ void app_main(void)
 // //     dht11_init(DHT11_PIN_1);
 
 // //     // 初始化I2C通信和TM1637显示模块
-// //     i2c_init();
 
-// //     // 初始化VL53L0X距离传感器
-// //     Gir_distance_sensor_init();
     
 // //     // 延迟1秒等待传感器初始化完成
 // //     vTaskDelay(pdMS_TO_TICKS(1000)); 
     
 // //     // 设置传感器工作模式：0表示高精模式，1表示高速模式
-// //     Gir_setMode(0); // 0: 高精模式，1: 高速模式
     
 // //     // 再次延迟1秒等待模式设置生效
 // //     vTaskDelay(pdMS_TO_TICKS(1000));
@@ -738,7 +730,6 @@ void app_main(void)
 // //             i = 0;
 
 // //         // 获取并打印当前距离测量值
-// //         getDistance();
         
 // //         // 读取GPIO1的电压
 // //         int voltage1 = ssdx_read_voltage(0);

@@ -172,7 +172,6 @@ idf.py -p PORT flash monitor
 |---------|---------|---------|
 | traffic_light | 交通灯控制，模拟交通灯状态切换 | [README](components/traffic_light/README.md) |
 
-> 📝 **注意**: 项目中还包含其他20个组件（如dht11、hc-sr04、mpu_6050、ble、wifi等），这些组件在当前main.c中未使用，但保留了完整的驱动代码和文档，可根据需要启用。完整组件列表请参考[文档导航](docs/README.md)。
 
 ---
 
@@ -212,7 +211,6 @@ idf.py -p PORT flash monitor
 
 - `main.c` - 完整集成主程序（当前使用）
 - `main_wireless_test.c` - 无线通信测试
-- `main_tm1640_test.c` - TM1640数码管测试
 - 其他测试程序...
 
 详细的测试程序说明请参考：

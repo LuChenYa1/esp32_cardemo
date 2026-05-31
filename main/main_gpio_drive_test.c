@@ -85,11 +85,9 @@ static const gpio_num_t test_gpios[] = {
     // GPIO_NUM_34, // SSA3   - TM1637 SCL
     // GPIO_NUM_35, // SSD3   - TM1637 SDA
     // GPIO_NUM_36, // SSD3   - TM1637 SDA
-    // GPIO_NUM_39, // SSD6   - VL53L0X SDA
 
     GPIO_NUM_37, // KEY2 / SSA2 - 触摸（⚠️ 同一引脚）
     GPIO_NUM_38, // SSA1 / KEY1 - DHT11（⚠️ 同一引脚）
-    GPIO_NUM_40, // SSA6   - VL53L0X SCL
     GPIO_NUM_41, // A1     - 编码器1A
     GPIO_NUM_42, // B1     - 编码器1B
     GPIO_NUM_45, // BEEP / A2（⚠️ 同一引脚）
@@ -133,7 +131,6 @@ static void gpio_special_pins_input_init(void)
         GPIO_NUM_34,    // 如果该引脚用于特殊功能，配置为输入
         GPIO_NUM_35,  // 如果该引脚用于特殊功能，配置为输入
         GPIO_NUM_36,  // 如果该引脚用于特殊功能，配置为输入
-        GPIO_NUM_39,  // VL53L0X SDA - 根据实际情况决定是否需要配置为输入
     };
     
     gpio_config_t input_conf = {
