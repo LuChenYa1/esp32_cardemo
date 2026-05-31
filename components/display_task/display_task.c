@@ -62,19 +62,18 @@ void display_task(void *pvParameters)
     // ========== 初始化所有外设 ==========
     
     // 1. 初始化TM1637数码管
-    tm1637_wt_cmd(WRT_DATA);    // 发送写数据命令
-    tm1637_switch(true);         // 开启显示
+    tm1637_init();
     ESP_LOGI(TAG, "TM1637数码管初始化完成");
     
     // 2. DHT11温湿度传感器（无需初始化）
-    ESP_LOGI(TAG, "DHT11温湿度传感器就绪（GPIO%d），读取间隔：2秒", DHT11_DATA_GPIO);
+    ESP_LOGI(TAG, "DHT11温湿度传感器就绪(GPIO%d)", DHT11_DATA_GPIO);
     
     // 3. 超声波传感器（GPIO在hc_sr04.c中配置）
     ESP_LOGI(TAG, "HC-SR04超声波传感器就绪");
     
     // 4. 初始化红外避障传感器
     ir_obstacle_init();
-    ESP_LOGI(TAG, "红外避障传感器初始化完成（GPIO%d）", IR_OBSTACLE_GPIO);
+    ESP_LOGI(TAG, "红外避障传感器就绪", IR_OBSTACLE_GPIO);
     
     // ========== 轮播显示主循环 ==========
     
